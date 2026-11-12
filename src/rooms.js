@@ -93,8 +93,7 @@ export const ROOMS = [
     solvedText: 'Ключ всплывает, поплавок поднимает решётку. Ход свободен.',
     water: { y1: 210, y2: 560 },
     scenery: [
-      { art: 'crate', pos: { x: 900, y: 500, w: 0, h: 0 } },
-      { art: 'shelf', pos: { x: 700, y: 92, w: 240, h: 84 } },
+      { art: 'shelf', pos: { x: 690, y: 116, w: 230, h: 78 } },
     ],
     player: { stats: { mass: 55, heat: 40, moisture: 70, give: 55 } },
     playerAt: { x: 80, y: 320, w: 140, h: 300 },
@@ -156,7 +155,7 @@ export const ROOMS = [
       'больше, чем есть у тебя и у свечи вместе. Но в углу стоит котёл с кипятком.',
     hint: 'Котёл отдаст своё тепло один раз. Второй засов придётся отогревать собой — и идти дальше замёрзшим.',
     solvedText: 'Оба засова тают. Дверь открыта, но пальцы не слушаются.',
-    water: { y1: 480, y2: 560 },
+    water: { y1: 506, y2: 566 },
     scenery: [
       { art: 'pedestal', pos: { x: 596, y: 470, w: 152, h: 150 } },
     ],
@@ -168,7 +167,7 @@ export const ROOMS = [
         name: 'верхний засов',
         art: 'ice',
         wall: true,
-        pos: { x: 838, y: 240, w: 96, h: 96 },
+        pos: { x: 898, y: 186, w: 84, h: 84 },
         stats: { mass: 60, heat: 8, moisture: 100, give: 20 },
       },
       {
@@ -176,7 +175,7 @@ export const ROOMS = [
         name: 'нижний засов',
         art: 'ice',
         wall: true,
-        pos: { x: 838, y: 384, w: 96, h: 96 },
+        pos: { x: 898, y: 350, w: 84, h: 84 },
         stats: { mass: 60, heat: 12, moisture: 100, give: 20 },
       },
       {
@@ -219,24 +218,24 @@ export const ROOMS = [
     water: null,
     scenery: [
       { art: 'table', pos: { x: 300, y: 470, w: 300, h: 150 } },
-      { art: 'crate', pos: { x: 60, y: 490, w: 116, h: 128 } },
+      { art: 'crate', pos: { x: 14, y: 512, w: 96, h: 106 } },
     ],
     player: { stats: { mass: 55, heat: 50, moisture: 30, give: 55 } },
     playerAt: { x: 84, y: 326, w: 140, h: 294 },
     objects: [
+      {
+        id: 'lever',
+        name: 'рычаг',
+        art: 'lever',
+        pos: { x: 660, y: 400, w: 210, h: 46 },
+        stats: { mass: 38, heat: 40, moisture: 20, give: 30 },
+      },
       {
         id: 'resin',
         name: 'смола',
         art: 'resin',
         pos: { x: 632, y: 360, w: 150, h: 110 },
         stats: { mass: 40, heat: 35, moisture: 92, give: 75 },
-      },
-      {
-        id: 'lever',
-        name: 'рычаг',
-        art: 'lever',
-        pos: { x: 646, y: 404, w: 220, h: 48 },
-        stats: { mass: 38, heat: 40, moisture: 20, give: 30 },
       },
       {
         id: 'sand',
@@ -249,7 +248,7 @@ export const ROOMS = [
         id: 'anvil',
         name: 'наковальня',
         art: 'anvil',
-        pos: { x: 190, y: 400, w: 160, h: 134 },
+        pos: { x: 206, y: 404, w: 152, h: 128 },
         stats: { mass: 92, heat: 25, moisture: 15, give: 8 },
       },
       {
@@ -284,7 +283,7 @@ export const ROOMS = [
     water: null,
     scenery: [
       { art: 'table', pos: { x: 250, y: 470, w: 420, h: 150 } },
-      { art: 'crate', pos: { x: 60, y: 490, w: 116, h: 128 } },
+      { art: 'crate', pos: { x: 14, y: 512, w: 96, h: 106 } },
     ],
     player: { stats: { mass: 55, heat: 55, moisture: 40, give: 55 } },
     playerAt: { x: 84, y: 326, w: 140, h: 294 },
@@ -462,21 +461,21 @@ export const ROOMS = [
         id: 'blank',
         name: 'заготовка',
         art: 'blank',
-        pos: { x: 510, y: 270, w: 200, h: 200 },
+        pos: { x: 522, y: 300, w: 176, h: 176 },
         stats: { mass: 20, heat: 10, moisture: 90, give: 95 },
       },
       {
         id: 'coal',
         name: 'угли',
         art: 'coal',
-        pos: { x: 812, y: 470, w: 142, h: 96 },
+        pos: { x: 640, y: 468, w: 128, h: 90 },
         stats: { mass: 40, heat: 96, moisture: 6, give: 25 },
       },
       {
         id: 'sand',
         name: 'песок',
         art: 'sand',
-        pos: { x: 276, y: 452, w: 168, h: 96 },
+        pos: { x: 232, y: 470, w: 156, h: 92 },
         stats: { mass: 64, heat: 45, moisture: 4, give: 18 },
       },
       {
