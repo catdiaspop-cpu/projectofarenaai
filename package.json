@@ -1,0 +1,17 @@
+{
+  "name": "metabolism",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Обмен веществ — логическая игра о перестановке свойств",
+  "scripts": {
+    "dev": "node server.mjs",
+    "test": "node tests/solvability.mjs",
+    "playtest": "node tests/playtest.mjs",
+    "shots": "node tests/screenshots.mjs"
+  },
+  "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2",
+    "jsdom": "^27.0.0"
+  }
+}
