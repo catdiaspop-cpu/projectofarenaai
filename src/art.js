@@ -217,7 +217,7 @@ const ART = {
   `,
 
   self: () => `
-    ${shade('g-self', '#544840', '#141110')}
+    ${shade('g-self', '#6b5b4f', '#1b1614')}
     <path d="M50 4 q11 0 11 13 q0 10 -5 14 l7 5 q14 8 14 30 v18 h-9 v12 h-8 v-12 h-20 v12 h-8 v-12 h-9 v-18 q0 -22 14 -30 l7 -5 q-5 -4 -5 -14 q0 -13 11 -13 Z"
           fill="url(#g-self)" stroke="#6d5d54" stroke-width="1.3"/>
     <path d="M40 34 q10 6 20 0 l-3 5 q-7 4 -14 0 Z" fill="#7a685d" opacity="0.55"/>

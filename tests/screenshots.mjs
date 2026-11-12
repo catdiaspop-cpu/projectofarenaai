@@ -18,7 +18,7 @@ for (let i = 0; i < 8; i += 1) {
   svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
   const png = new Resvg(svg.outerHTML, { fitTo: { mode: 'width', value: 1100 }, background: '#14100e' }).render().asPng();
   fs.writeFileSync(`preview/room-${i + 1}.png`, png);
-  const status = [...document.querySelectorAll('#statusList li')]
-    .map(li => (li.classList.contains('ok') ? '✓' : '·') + li.textContent.trim()).join('  ');
-  console.log(`room ${i + 1}: ${status}`);
+  const status = [...document.querySelectorAll('.pips i')]
+    .map(i => (i.classList.contains('on') ? '✓' : '·')).join('');
+  console.log(`room ${i + 1}: условия ${status}`);
 }
