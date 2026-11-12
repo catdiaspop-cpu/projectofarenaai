@@ -49,3 +49,13 @@ console.log('подсказка открыта:', !!document.querySelector('.hin
 // помощь
 click('#helpBtn');
 console.log('модалка помощи:', !!document.querySelector('.modal'));
+
+// ── мобильный сценарий: только док каналов и полоса предметов ──
+document.querySelectorAll('.roomdot')[0].click();
+click('.dockchan[data-channel="heat"]');
+console.log('\n[мобильный] канал включён:', document.querySelector('.dockchan[data-channel="heat"]').classList.contains('is-on'));
+console.log('[мобильный] подсказка:', document.querySelector('.striphead').textContent);
+click('.chip[data-id="candle"]');
+console.log('[мобильный] после выбора:', document.querySelector('.striphead').textContent);
+click('.chip[data-id="rope"]');
+console.log('[мобильный] решено тапами:', !!document.querySelector('.solvedcard'));
