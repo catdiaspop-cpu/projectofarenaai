@@ -8,7 +8,9 @@
     "dev": "node server.mjs",
     "test": "node tests/solvability.mjs",
     "playtest": "node tests/playtest.mjs",
-    "shots": "node tests/screenshots.mjs"
+    "shots": "node tests/screenshots.mjs",
+    "build": "node build.mjs",
+    "preview": "node build.mjs && node server.mjs"
   },
   "devDependencies": {
     "@resvg/resvg-js": "^2.6.2",
