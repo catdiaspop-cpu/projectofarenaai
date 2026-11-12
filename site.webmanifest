@@ -1,0 +1,20 @@
+{
+  "name": "Обмен веществ",
+  "short_name": "Обмен",
+  "description": "Логическая игра: четыре свойства, один глагол — обмен.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#14100e",
+  "theme_color": "#14100e",
+  "lang": "ru",
+  "icons": [
+    {
+      "src": "./favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

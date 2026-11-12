@@ -212,6 +212,31 @@ function render() {
         <div class="exchange" id="exchange" role="status" aria-live="polite"></div>
         ${ui.solved ? solvedOverlay(room) : ''}
       </section>
+
+      <nav class="dock" aria-label="Канал обмена (телефон)">
+        ${CHANNELS.map((key) => `
+          <button class="dockchan ${ui.channel === key ? 'is-on' : ''}"
+                  data-channel="${key}" style="--c:${CHANNEL[key].color}"
+                  aria-pressed="${ui.channel === key}">
+            <span class="dockdot"></span>${CHANNEL[key].label}
+          </button>`).join('')}
+      </nav>
+
+      <section class="strip" aria-label="Предметы (телефон)">
+        <p class="striphead">${ui.selected
+          ? `забрали у «${getObj(ui.state, ui.selected).name}» — кому отдать?`
+          : ui.channel
+            ? `канал «${CHANNEL[ui.channel].label}» — у кого забрать?`
+            : 'выбери канал, затем предмет'}</p>
+        <div class="striprow">
+          ${ui.state.objects.map((o) => `
+            <button class="chip ${ui.selected === o.id ? 'is-selected' : ''} ${o.isSelf ? 'is-self' : ''}"
+                    data-id="${o.id}">
+              <span class="chipart">${artSvg(o.art, 0, 0, 44, 44)}</span>
+              <span class="chipname">${o.name}</span>
+            </button>`).join('')}
+        </div>
+      </section>
     </main>
 
     <div class="inspector" id="inspector" hidden></div>
@@ -414,6 +439,22 @@ function bind() {
   };
 
   document.getElementById('helpBtn').onclick = openHelp;
+
+  app.querySelectorAll('.dockchan').forEach((btn) => {
+    btn.onclick = () => {
+      ui.channel = ui.channel === btn.dataset.channel ? null : btn.dataset.channel;
+      if (navigator.vibrate) navigator.vibrate(8);
+      sfx.pick();
+      render();
+    };
+  });
+
+  app.querySelectorAll('.chip').forEach((btn) => {
+    btn.onclick = () => {
+      if (navigator.vibrate) navigator.vibrate(10);
+      pick(btn.dataset.id);
+    };
+  });
 
   app.querySelectorAll('.chan').forEach((btn) => {
     btn.onclick = () => {
