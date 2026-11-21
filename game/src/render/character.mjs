@@ -276,6 +276,25 @@ export class Character {
     else this.pelvis.position.y -= low;
   }
 
+  /**
+   * Вид от первого лица.
+   *
+   * Мальчик — это камера, поэтому голову и руки показывать нельзя: они были
+   * бы внутри глаз. Но и прятать всё тело неправильно — тогда, посмотрев вниз,
+   * видишь пустой пол, будто у тебя нет ни тела, ни ног. Поэтому корпус,
+   * ноги и ступни остаются: вниз смотришь и видишь свои коленки и носки.
+   */
+  setFirstPerson(on = true) {
+    this.firstPerson = on;
+    this.head.visible = !on;
+    // голову прячем, шея остаётся — она ниже глаз и не мешает
+    this.armL.U.visible = on ? false : true;
+    this.armR.U.visible = on ? false : true;
+    // корпус, таз и ноги видимы всегда
+    this.torso.visible = true;
+    this.pelvis.visible = true;
+  }
+
   hold(item) {
     this.plush.visible = item === 'plush';
     this.flashlight.visible = item === 'flashlight';
