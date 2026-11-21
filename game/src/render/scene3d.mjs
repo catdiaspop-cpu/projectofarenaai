@@ -30,9 +30,43 @@ import { leafTransform, leafAngle, swingSign } from '../sim/doors.mjs';
 
 const RENDER_SCALE = 0.75;
 
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+/**
+ * Yaw в диапазон −π…π.
+ *
+ * Без этого поворот накапливался без предела: за десять минут игры yaw
+ * доходил до сотен радиан, точность float падала, и на больших значениях
+ * кадр начинал дёргаться. Плюс в тестах нельзя было сравнивать углы.
+ */
+export function wrapAngle(a) {
+  const t = Math.PI * 2;
+  let x = a % t;
+  if (x > Math.PI) x -= t;
+  if (x < -Math.PI) x += t;
+  return x;
+}
+
 export class Scene3D {
-  constructor(canvas, { onTap } = {}) {
+  /**
+   * @param {HTMLCanvasElement} canvas
+   * @param {{onTap?: Function, onContextLost?: Function}} opts
+   *   onContextLost — сцена больше не может рисовать (телефон отобрал
+   *   WebGL-контекст, например при переключении приложения). Без этого
+   *   экран просто чернел навсегда: кадры «рисуются», а на экране ничего.
+   */
+  constructor(canvas, { onTap, onContextLost } = {}) {
     this.canvas = canvas;
+    this.onContextLost = onContextLost;
+    this.lost = false;
+    canvas.addEventListener?.('webglcontextlost', (e) => {
+      e.preventDefault?.();
+      this.lost = true;
+      this.onContextLost?.();
+    });
+    canvas.addEventListener?.('webglcontextrestored', () => {
+      this.lost = false;
+    });
     this.renderer = new THREE.WebGLRenderer({
       canvas,
       antialias: false,
@@ -482,11 +516,21 @@ export class Scene3D {
    * Раньше знаки шли напрямую, и оба свайпа были вывернуты наизнанку.
    */
   rotate(deltaYaw, deltaPitch = 0) {
-    this.yaw -= deltaYaw;
-    this.pitch = Math.max(this.pitchMin, Math.min(this.pitchMax, this.pitch - deltaPitch));
+    // ── свайп вбок всегда крутит по горизонтали ──
+    // Вращение идёт в порядке YXZ: сначала yaw вокруг МИРОВОЙ вертикали, потом
+    // pitch. Если накапливать их независимо, при взгляде вниз (pitch ≈ −35°)
+    // горизонтальный свайп уводит кадр не в сторону, а по полу — экран
+    // «заваливается», и рука это читает как «камера залипла».
+    // Поэтому вбок вращает вектор вокруг мировой оси Y, а наклон — уже вокруг
+    // собственной оси X. Горизонт при этом остаётся горизонтом, сколько бы
+    // игрок ни смотрел вниз.
+    this.yaw = wrapAngle(this.yaw + deltaYaw);
+    this.pitch = clamp(this.pitch - deltaPitch, this.pitchMin, this.pitchMax);
   }
 
   render(dt) {
+    // контекст потерян — рисовать некуда; мир при этом продолжает жить
+    if (this.lost) return;
     this.t += dt;
     this.flicker = Math.sin(this.t * 17.3) * 0.03 + Math.sin(this.t * 6.1) * 0.02;
 

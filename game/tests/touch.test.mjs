@@ -133,6 +133,56 @@ t('стик стоит внизу экрана, а не сверху', () => {
   ok(/top:\s*auto/.test(move), 'top не сброшен — стик снова уедет наверх');
 });
 
+t('весь экран принимает касания: сверху нет мёртвой зоны', () => {
+  // Зоны были высотой 62% от низа — верхняя треть экрана не принимала НИЧЕГО.
+  // Игрок ведёт пальцем по верхней половине (там, где смотрит), ничего не
+  // происходит и он говорит «камера не двигается». Это была не логика, а мёртвая зона.
+  const look = rule('.look-zone');
+  const h = /height:\s*(\d+)%/.exec(look) ?? /height:\s*(\d+)%/.exec(rule('.stick-zone, .look-zone'));
+  ok(h && Number(h[1]) >= 100, `зона свайпа высотой ${h?.[1]}% — верх экрана не работает`);
+});
+
+t('стик не отпускается, пока палец прижат', () => {
+  // pointerleave обрывал и стик, и свайп: палец уходил за край зоны (а он
+  // уходит — ведёшь вверх к центру экрана) и управление пропадало.
+  const src = sticks;
+  ok(!/addEventListener\('pointerleave',\s*end\)/.test(src),
+    'pointerleave снова отпускает управление при живом пальце');
+  ok(/window\.addEventListener\('pointerup',\s*end\)/.test(src),
+    'отпускание не слушается на уровне окна — палец за краем зоны потеряется');
+});
+
+t('кадр не умирает от исключения', () => {
+  // Ошибка внутри кадра выбрасывала из requestAnimationFrame навсегда:
+  // картинка застывала, и ввод уже ничего не мог. Симптом игрока — ровно
+  // «камера не двигается и человек не идёт» одновременно.
+  const main = readFileSync(new URL('../src/main.mjs', import.meta.url), 'utf8');
+  const body = main.slice(main.indexOf('function frame(now)'), main.indexOf('function reportCrash'));
+  ok(/try\s*\{/.test(body), 'в кадре нет try — одно исключение убивает цикл');
+  ok(/requestAnimationFrame\(frame\)/.test(body), 'кадр не перезапускается');
+  ok(/reportCrash/.test(body), 'ошибка не показывается игроку');
+});
+
+t('потеря WebGL-контекста не оставляет чёрный экран', () => {
+  const scene = readFileSync(new URL('../src/render/scene3d.mjs', import.meta.url), 'utf8');
+  ok(scene.includes('webglcontextlost'), 'нет обработки потери контекста');
+  ok(/if \(this\.lost\) return/.test(scene), 'потерянный контекст всё равно пытается рисовать');
+  const main = readFileSync(new URL('../src/main.mjs', import.meta.url), 'utf8');
+  ok(main.includes('sceneLost'), 'main не знает о потере контекста — будет чёрный кадр');
+});
+
+t('service worker зарегистрирован и знает все модули', () => {
+  // sw.js лежал с самого начала, но его никто не регистрировал: офлайна не
+  // было вообще, а на телефоне жил вчерашний код.
+  const main = readFileSync(new URL('../src/main.mjs', import.meta.url), 'utf8');
+  ok(main.includes("serviceWorker.register('./sw.js')"), 'service worker не регистрируется');
+  const sw = readFileSync(new URL('../sw.js', import.meta.url), 'utf8');
+  const mods = [...readFileSync(new URL('../src/main.mjs', import.meta.url), 'utf8')
+    .matchAll(/from '\.\/([^']+\.mjs)'/g)].map((m) => m[1]);
+  const missing = mods.filter((m) => !sw.includes(`'./src/${m}'`));
+  ok(missing.length === 0, `в офлайн-кэше нет модулей: ${missing.join(', ')}`);
+});
+
 console.log('');
 if (fail) {
   console.log(`✗ ПРОВАЛЕНО: ${fail}, пройдено: ${pass}\n`);
