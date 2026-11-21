@@ -190,6 +190,35 @@ export class World {
     return { x: r.w / 2, z: r.d / 2 };
   }
 
+  /**
+   * Сдвинуть точку на минимальное расстояние, чтобы она не была в мебели.
+   *
+   * Это НЕ safeSpot: тот ищет «где просторнее» и может увести на метры.
+   * Здесь важно сохранить место входа — сдвигаем на сантиметры, и только
+   * если исходная точка реально внутри препятствия.
+   */
+  nudgeSpot(x, z) {
+    const r = this.roomData.rect;
+    const obs = this.obstacles();
+    const free = (px, pz) => {
+      if (px < 0.24 || pz < 0.24 || px > r.w - 0.24 || pz > r.d - 0.24) return false;
+      return !obs.some((o) => px > o.x0 - 0.18 && px < o.x1 + 0.18 && pz > o.z0 - 0.18 && pz < o.z1 + 0.18);
+    };
+    if (free(x, z)) return { x, z };
+    // ближайшая свободная точка: кольца по 6 см, не дальше 0.9 м
+    for (let ring = 0.06; ring <= 0.9; ring += 0.06) {
+      const steps = Math.max(8, Math.round(ring * 22));
+      for (let i = 0; i < steps; i++) {
+        const a = (i / steps) * Math.PI * 2;
+        const px = x + Math.cos(a) * ring;
+        const pz = z + Math.sin(a) * ring;
+        if (free(px, pz)) return { x: px, z: pz };
+      }
+    }
+    // совсем зажали — уходим в центр, но это уже аварийный случай
+    return { x: r.w / 2, z: r.d / 2 };
+  }
+
   /** Идти к точке комнаты (локальные координаты). */
   walkTo(x, z, mode = 'sneak') {
     if (!this.inBounds(x, z)) return false;
@@ -241,13 +270,18 @@ export class World {
    * Нужен настоящим дверям: мальчик уже прошёл порог, и переставлять его
    * куда-то в середину комнаты нельзя — он должен оказаться у той же двери.
    */
-  goToRoomDirect(roomId, entry) {
+  goToRoomDirect(roomId, entry, { nudge = true } = {}) {
     const from = this.room;
     if (!roomId) return false;
     this.room = roomId;
-    // Точка входа — у двери, но если там стоит шкаф, мальчик оказывался
-    // внутри мебели: шаг отменялся проверкой, и он «не мог двинуться».
-    this.pos = this.safeSpot(entry.x, entry.z);
+    // ── точка входа = ровно та, где он шагнул ──
+    // Раньше здесь всегда вызывался safeSpot(), а он выбирает САМУЮ СВОБОДНУЮ
+    // точку в радиусе 3.5 м — то есть перебрасывал мальчика через полкомнаты.
+    // На экране это чистый телепорт: шагнул в дверь, а кадр оказался у шкафа
+    // на другой стороне. Теперь по умолчанию ставим как есть; сдвигаем
+    // только если попали ровно в мебель (и сдвигаем по минимуму, а не в
+    // самый простор).
+    this.pos = nudge ? this.nudgeSpot(entry.x, entry.z) : { x: entry.x, z: entry.z };
     this.path = null;
     this.walkProgress = null;
     this.mode = 'idle';
