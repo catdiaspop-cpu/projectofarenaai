@@ -305,6 +305,10 @@ html, body {
   transition: opacity 140ms ease;
 }
 .stick-move { left: 26%; bottom: 24%; }
+/* ВАЖНО: у .stick заданы left:0 top:0, а .stick-move добавляет bottom.
+   В абсолютном позиционировании top:0 сильнее bottom, поэтому стик
+   улетал в ЛЕВЫЙ ВЕРХНИЙ угол экрана — «джойстик сверху». Здесь top снят. */
+.stick-move { top: auto; }
 .stick.active { opacity: 1; }
 
 .stick-base {

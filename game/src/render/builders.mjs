@@ -8,7 +8,7 @@
 
 import { ROOM_LOOK } from '../data/rooms.mjs';
 import { HEIGHTS, DOORS, WINDOWS } from '../data/house.mjs';
-import { B, C, P } from '../world/props.mjs';
+import { B, BX, C, P } from '../world/props.mjs';
 
 const WALL_T = HEIGHTS.wallThickness;
 const WALL_H = HEIGHTS.floorHeight;
@@ -71,12 +71,53 @@ export function openingsFor(room) {
  * @param {object} room — комната из house.mjs
  * @returns {{parts: Array, openings: object, glass: Array}}
  */
-export function roomShellParts(room) {
+export function roomShellParts(room, { bare = false } = {}) {
   const { rect } = room;
   const look = ROOM_LOOK[room.kind] ?? ROOM_LOOK.hall;
   const parts = [];
   const openings = openingsFor(room);
   const glass = [];
+
+  if (bare) {
+    // «Просвет» соседней комнаты: только объём — пол, потолок, стены с
+    // проёмами. Никакой отделки, плинтусов и наличников: это видно только
+    // через дверной проём и стоит дешевле всего.
+    parts.push(P(rect.w, rect.d, 0.5 * rect.w, -0.02, 0.5 * rect.d, look.floor, { floorOf: true }));
+    parts.push(P(rect.w, rect.d, 0.5 * rect.w, HEIGHTS.floorHeight, 0.5 * rect.d, look.ceiling, { ceilingOf: true }));
+    const walls = [
+      { side: 'n', len: rect.w, axis: 'x', at: 0 },
+      { side: 's', len: rect.w, axis: 'x', at: rect.d },
+      { side: 'w', len: rect.d, axis: 'z', at: 0 },
+      { side: 'e', len: rect.d, axis: 'z', at: rect.w },
+    ];
+    for (const wall of walls) {
+      const ops = openings[wall.side];
+      for (const s of solidSpans(wall.len, ops)) {
+        const w = s.to - s.from;
+        if (w < 0.01) continue;
+        const cx = s.from + w / 2;
+        if (wall.axis === 'x') parts.push(B(w, HEIGHTS.floorHeight, WALL_T, cx, 0, wall.at, look.wall));
+        else parts.push(B(WALL_T, HEIGHTS.floorHeight, w, wall.at, 0, cx, look.wall));
+      }
+      for (const o of ops) {
+        const w = o.to - o.from;
+        if (w < 0.01) continue;
+        const cx = o.from + w / 2;
+        const top = o.kind === 'door' ? HEIGHTS.door.h : o.sill + o.h;
+        const bottom = o.kind === 'door' ? 0 : o.sill;
+        const hTop = HEIGHTS.floorHeight - top;
+        if (hTop > 0.01) {
+          if (wall.axis === 'x') parts.push(B(w, hTop, WALL_T, cx, top, wall.at, look.wall));
+          else parts.push(B(WALL_T, hTop, w, wall.at, top, cx, look.wall));
+        }
+        if (bottom > 0.01) {
+          if (wall.axis === 'x') parts.push(B(w, bottom, WALL_T, cx, 0, wall.at, look.wall));
+          else parts.push(B(WALL_T, bottom, w, wall.at, 0, cx, look.wall));
+        }
+      }
+    }
+    return { parts, openings, glass };
+  }
 
   // ── пол: доски полосами, «ёлочкой» не заморачиваемся, но швы делаем
   parts.push(P(rect.w, rect.d, 0.5 * rect.w, -0.02, 0.5 * rect.d, look.floor, { floorOf: true }));
@@ -150,20 +191,34 @@ export function roomShellParts(room) {
           parts.push(B(WALL_T + 0.04, fw, w + fw * 2, wall.at, top, cx, look.trim));
         }
       } else {
-        // подоконник, рама и стекло
-        const sillDepth = 0.24;
+        // ── окно: подоконник, рама с перекладиной, стекло ──
+        // Окно — единственный источник «улицы» в комнате, и без рамы с
+        // перекладиной оно читается как дыра в стене. Добавили наличник
+        // вокруг, среднюю перекладину и настоящий подоконник с выступом.
+        const sillDepth = 0.26;
+        const fr = 0.06;
+        const midY = bottom + o.h / 2;
         if (wall.axis === 'x') {
-          parts.push(B(w + 0.12, 0.05, WALL_T + sillDepth, cx, bottom - 0.05, wall.at, look.trim));
-          parts.push(B(0.06, o.h, WALL_T, cx - w / 2, bottom, wall.at, look.trim));
-          parts.push(B(0.06, o.h, WALL_T, cx + w / 2, bottom, wall.at, look.trim));
-          parts.push(B(w, 0.06, WALL_T, cx, top - 0.06, wall.at, look.trim));
-          glass.push(B(w - 0.06, o.h - 0.06, 0.02, cx, bottom, wall.at, 'glassDark', { rot: [0, 0, 0] }));
+          parts.push(B(w + 0.16, 0.05, WALL_T + sillDepth, cx, bottom - 0.05, wall.at, look.trim));
+          parts.push(B(fr, o.h, WALL_T, cx - w / 2, bottom, wall.at, look.trim));
+          parts.push(B(fr, o.h, WALL_T, cx + w / 2, bottom, wall.at, look.trim));
+          parts.push(B(w, fr, WALL_T, cx, top - fr, wall.at, look.trim));
+          parts.push(B(w, 0.035, WALL_T * 0.7, cx, midY, wall.at, look.trim));   // перекладина
+          // наличник вокруг окна — по стене, чуть выступает
+          parts.push(B(0.04, o.h + 0.14, WALL_T + 0.03, cx - w / 2 - 0.09, bottom - 0.06, wall.at, look.trim));
+          parts.push(B(0.04, o.h + 0.14, WALL_T + 0.03, cx + w / 2 + 0.09, bottom - 0.06, wall.at, look.trim));
+          parts.push(B(w + 0.22, 0.04, WALL_T + 0.03, cx, top + 0.02, wall.at, look.trim));
+          glass.push(BX(w - 0.06, o.h - 0.06, 0.02, cx, bottom, wall.at, 'glassDark'));
         } else {
-          parts.push(B(WALL_T + sillDepth, 0.05, w + 0.12, wall.at, bottom - 0.05, cx, look.trim));
-          parts.push(B(WALL_T, o.h, 0.06, wall.at, bottom, cx - w / 2, look.trim));
-          parts.push(B(WALL_T, o.h, 0.06, wall.at, bottom, cx + w / 2, look.trim));
-          parts.push(B(WALL_T, 0.06, w, wall.at, top - 0.06, cx, look.trim));
-          glass.push(B(0.02, o.h - 0.06, w - 0.06, wall.at, bottom, cx, 'glassDark'));
+          parts.push(B(WALL_T + sillDepth, 0.05, w + 0.16, wall.at, bottom - 0.05, cx, look.trim));
+          parts.push(B(WALL_T, o.h, fr, wall.at, bottom, cx - w / 2, look.trim));
+          parts.push(B(WALL_T, o.h, fr, wall.at, bottom, cx + w / 2, look.trim));
+          parts.push(B(WALL_T, fr, w, wall.at, top - fr, cx, look.trim));
+          parts.push(B(WALL_T * 0.7, 0.035, w, wall.at, midY, cx, look.trim));
+          parts.push(B(WALL_T + 0.03, o.h + 0.14, 0.04, wall.at, bottom - 0.06, cx - w / 2 - 0.09, look.trim));
+          parts.push(B(WALL_T + 0.03, o.h + 0.14, 0.04, wall.at, bottom - 0.06, cx + w / 2 + 0.09, look.trim));
+          parts.push(B(WALL_T + 0.03, 0.04, w + 0.22, wall.at, top + 0.02, cx, look.trim));
+          glass.push(BX(0.02, o.h - 0.06, w - 0.06, wall.at, bottom, cx, 'glassDark'));
         }
       }
     }

@@ -25,8 +25,8 @@ const FP = {
   // вертикальная половина кадра на 0.34 м впереди — это ±0.23 м. Значит
   // кисть на −0.24 при z −0.34 уже у самого низа, а на −0.30 её не видно
   // вообще (это и было: «руки в кадре», но в кадре пусто).
-  rightArmDrop: -0.055,
-  armForward: -0.33,
+  rightArmDrop: -0.042,
+  armForward: -0.30,
   swayAmp: 0.010,
   bobAmp: 0.014,
 };
@@ -45,17 +45,30 @@ function limb(parts, mat) {
   return group;
 }
 
-/** Правая рука с фонарём: предплечье, кисть, корпус фонаря, линза. */
+/**
+ * Правая рука с фонарём.
+ *
+ * Важно про плечо: в кадре должно быть только предплечье и кисть. Плечо в
+ * поле зрения не попадает никогда — рука входит в кадр снизу-справа, из-за
+ * нижнего края. Если рисовать плечо, оно превращается в огромный рукав на
+ * пол-экрана: на телефоне камера стоит в 30 см от руки, и перспектива
+ * раздувает всё, что ближе.
+ *
+ * Поэтому рукав короткий, наклонён внутрь и обрезан краем кадра, а не
+ * начинается от плеча.
+ */
 function buildRightArm() {
   const g = new THREE.Group();
 
-  // рукав худи уходит за нижний край кадра
+  // предплечье: входит из-за нижнего края, наклонено к центру
   const sleeve = limb([
-    { w: 0.082, h: 0.16, d: 0.088, x: 0.015, y: -0.075, z: -0.012 },
+    { w: 0.074, h: 0.15, d: 0.08, x: 0.0, y: -0.055, z: 0.01 },
   ], 'hoodie');
+  sleeve.rotation.z = 0.13;
   g.add(sleeve);
 
-  const cuff = limb([{ w: 0.088, h: 0.028, d: 0.094, x: 0.015, y: -0.16, z: -0.012 }], 'hoodieDark');
+  const cuff = limb([{ w: 0.078, h: 0.026, d: 0.084, x: -0.004, y: -0.132, z: 0.005 }], 'hoodieDark');
+  cuff.rotation.z = 0.13;
   g.add(cuff);
 
   // кисть
@@ -140,7 +153,7 @@ export class ViewModel {
     this.scene.add(this.root);
 
     this.rightArm = buildRightArm();
-    this.rightArm.position.set(0.12, FP.rightArmDrop, FP.armForward);
+    this.rightArm.position.set(0.105, FP.rightArmDrop, FP.armForward);
     this.root.add(this.rightArm);
 
     this.leftArm = buildLeftArm();
@@ -209,7 +222,7 @@ export class ViewModel {
 
     // правая рука с фонарём покачивается сильнее — она тяжёлая
     this.rightArm.position.y = FP.rightArmDrop - bobY * 1.6;
-    this.rightArm.position.x = 0.12 + swayX * 0.6;
+    this.rightArm.position.x = 0.105 + swayX * 0.6;
     this.rightArm.rotation.z = -0.16 - rollZ * 1.4;
     this.rightArm.rotation.x = -pitch * 0.12;
 
@@ -245,5 +258,5 @@ export { FP };
 
 /** Точка кисти с фонарём в системе камеры — по ней проверяется кадр. */
 export function handPoint() {
-  return { x: 0.12 + 0.012, y: FP.rightArmDrop - 0.205, z: FP.armForward - 0.10 };
+  return { x: 0.105 - 0.004, y: FP.rightArmDrop - 0.205, z: FP.armForward - 0.10 };
 }
