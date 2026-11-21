@@ -282,6 +282,44 @@ t('на всех стенах створка направлена в проём'
   ok(sides.size >= 3, `в доме всего ${sides.size} стороны с дверями — проверка слабая`);
 });
 
+t('после перехода через любую дверь можно идти дальше', () => {
+  // Это проверка на «застрял в стене». Точка входа должна быть внутри
+  // комнаты, не в мебели и не в косяке — иначе игрок застревает навсегда,
+  // и никакая кнопка не помогает.
+  for (const door of DOORS) {
+    if (door.stairs) continue;
+    for (const [from, to] of [[door.a, door.b], [door.b, door.a]]) {
+      if (!to) continue;
+      const target = roomById(to);
+      const entry = entryPoint(door, target, 0.36);
+      ok(entry.x > 0.3 && entry.x < target.rect.w - 0.3,
+        `${door.id} → ${to}: точка входа x=${entry.x.toFixed(2)} у самой стены`);
+      ok(entry.z > 0.3 && entry.z < target.rect.d - 0.3,
+        `${door.id} → ${to}: точка входа z=${entry.z.toFixed(2)} у самой стены`);
+      ok(fits(entry, target.rect, [], []) || fits(entry, target.rect, [], [doorOpening(door, target)]),
+        `${door.id} → ${to}: точка входа в стене или в мебели (${entry.x.toFixed(2)}, ${entry.z.toFixed(2)})`);
+    }
+  }
+});
+
+t('пройдя порог, комнату меняем ровно один раз', () => {
+  // Порог не должен срабатывать на каждом кадре: одна дверь — один переход.
+  const room = roomById('childroom');
+  const door = DOORS.find((d) => d.id === 'cor-child');
+  const op = doorOpening(door, room);
+  const mid = (op.from + op.to) / 2;
+  let crossings = 0;
+  let pos = { x: mid, z: room.rect.d - 0.4 };
+  let prevCrossed = false;
+  for (let i = 0; i < 90; i++) {
+    pos = step(pos, { x: 0, z: 1 }, 0.95, 1 / 60, room.rect, [], [op]).pos;
+    const crossed = Boolean(crossedThreshold(pos, room.rect, [op]));
+    if (crossed && !prevCrossed) crossings++;
+    prevCrossed = crossed;
+  }
+  ok(crossings === 1, `переходов ${crossings} вместо одного`);
+});
+
 console.log('');
 if (fail) {
   console.log(`✗ ПРОВАЛЕНО: ${fail}, пройдено: ${pass}\n`);

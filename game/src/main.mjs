@@ -14,7 +14,7 @@ import { DOORS } from './data/house.mjs';
 import { canOpen, doorsOf, otherSide } from './sim/locks.mjs';
 import { moveMode } from './core/joystick.mjs';
 import { dirFromStick, step, crossedThreshold } from './core/movement.mjs';
-import { doorOpening, entryPoint, doorSide, distanceToDoor } from './sim/doors.mjs';
+import { doorOpening, entryPoint } from './sim/doors.mjs';
 import { PROPS } from './world/props.mjs';
 
 const app = document.getElementById('app');
@@ -37,8 +37,6 @@ let crouch = false;
 let paused = false;
 let sceneLoading = false;
 let pendingDoor = null;      // { door, target, opening, opened } — дверь открыта, ждём шага
-let doorAnim = 0;            // 0..1 — насколько открыта створка
-let travelLock = 0;          // блокировка ввода на время перехода
 
 // ─────────────────────────── сцены ───────────────────────────
 
@@ -73,6 +71,7 @@ function show3d() {
     scene3d.setCharacter(world.pos.x, world.pos.z, world.facing, 'idle', 'flashlight');
     scene3d.faceIntoRoom();
     mode = '3d';
+    currentOpenings();      // одиночные двери открыты сразу
     app.dataset.mode = '3d';
     sticks?.setTorch(true);
     hud?.toast('фонарь в руке. иди.', 2600);
@@ -153,13 +152,26 @@ function nearDoor(reach = 0.95) {
   return best;
 }
 
-/** Проёмы текущей комнаты: в них можно войти и сквозь них пройти. */
+/**
+ * Проёмы текущей комнаты: в них можно войти и сквозь них пройти.
+ *
+ * Здесь же решается, какие створки открыты. Правило простое: дверь открыта,
+ * если игрок сам её открыл или если она единственная в комнате (иначе в
+ * коридоре шириной 1.5 м упираешься в стену и «действие» — единственный
+ * способ выйти — теряется под пальцем).
+ */
 function currentOpenings() {
   const room = world.roomData;
-  return DOORS
-    .filter((d) => d.a === world.room || d.b === world.room)
-    .map((d) => doorOpening(d, room))
-    .filter(Boolean);
+  const mine = DOORS.filter((d) => d.a === world.room || d.b === world.room);
+  const out = [];
+  for (const d of mine) {
+    const op = doorOpening(d, room);
+    if (!op) continue;
+    // одна дверь в комнате — держим открытой
+    if (mine.length === 1 && !d.stairs) scene3d?.openDoor(d.id);
+    out.push(op);
+  }
+  return out;
 }
 
 /** Контекст для замков: что у мальчика есть прямо сейчас. */
@@ -233,27 +245,56 @@ function applyMovement(dt) {
 
   const room = world.roomData;
   // Проёмы дверей — не стены: в них можно войти и сквозь них выйти.
-  const openings = pendingDoor ? [pendingDoor.opening] : currentOpenings();
+  const openings = currentOpenings();
   const res = step(world.pos, dir, speed, dt, room.rect, world.obstacles(), openings);
-  const travelled = Math.hypot(res.pos.x - world.pos.x, res.pos.z - world.pos.z);
+  // Считаем сдвиг ДО того, как перезапишем позицию: иначе «куда он сдвинулся»
+  // всегда ноль, и мальчик не поворачивается при ходьбе вообще.
+  const dx = res.pos.x - world.pos.x;
+  const dz = res.pos.z - world.pos.z;
+  const travelled = Math.hypot(dx, dz);
   world.pos = res.pos;
   world.bumped = res.blocked;
 
-  // Мальчик идёт туда, куда воткнулся: если упёрлись в стену, он не
-  // разворачивается на 90°, а смотрит вдоль стены, скользя по ней.
-  const moved = Math.hypot(res.pos.x - world.pos.x, res.pos.z - world.pos.z);
-  if (moved > 1e-5) {
-    world.facing = Math.atan2(res.pos.x - world.pos.x, res.pos.z - world.pos.z);
-  }
+  // Мальчик смотрит туда, куда реально сдвинулся: если упёрлись в стену и
+  // скользим вдоль неё — он смотрит вдоль стены, а не в стену.
+  if (travelled > 1e-5) world.facing = Math.atan2(dx, dz);
   world.mode = crouch ? 'sneak' : sprinting ? 'run' : 'walk';
   world.moving = travelled > 0.0001;
 
-  // ── пересёк порог? тогда и только тогда меняем комнату
+  // ── пересёк порог? тогда и только тогда меняем комнату ──
+  // Работает и для двери, открытой кнопкой, и для комнаты с единственной
+  // дверью (там створка открыта всегда): новый этаж не появляется, пока
+  // мальчик физически не вышел за линию стены.
   if (pendingDoor) {
-    const crossed = crossedThreshold(world.pos, room.rect, [pendingDoor.opening]);
-    if (crossed) finishDoor();
+    if (crossedThreshold(world.pos, room.rect, [pendingDoor.opening])) finishDoor();
+  } else {
+    const crossed = crossingDoor(world.pos, room);
+    if (crossed) {
+      pendingDoor = crossed;
+      finishDoor();
+    }
   }
   return travelled;
+}
+
+/**
+ * Какую дверь мальчик пересёк, не открывая её кнопкой.
+ *
+ * Нужно для комнат с одной дверью: там створка открыта всегда (иначе в
+ * коридоре 1.5 м шириной некуда деть «действие»). Считаем по настоящей
+ * полосе порога из movement.mjs — той же, что и столкновения, а не по
+ * второй, «похожей» формуле: две похожие формулы и есть источник ошибок.
+ */
+function crossingDoor(pos, room) {
+  for (const d of doorsOf(world.room)) {
+    const op = doorOpening(d, room);
+    if (!op || op.stairs) continue;
+    if (!crossedThreshold(pos, room.rect, [op])) continue;
+    const target = otherSide(d, room);
+    if (!target) continue;
+    return { door: d, target, opening: op, openedAt: 0 };
+  }
+  return null;
 }
 
 // ─────────────────────────── дверь ───────────────────────────
@@ -270,7 +311,7 @@ function applyMovement(dt) {
  * отсюда «застрял в стене».
  */
 function tryDoor(reach = 1.25) {
-  if (pendingDoor || world.travelling) return;
+  if (pendingDoor) return;
   const near = nearDoor(reach);
   if (!near) {
     hud.toast('надо подойти к двери.', 1600);
@@ -289,7 +330,6 @@ function tryDoor(reach = 1.25) {
     return;
   }
   pendingDoor = { door, target, opening, openedAt: 0 };
-  doorAnim = 0;
   scene3d?.openDoor(door.id, world.roomData);
   hud.toast(lock.reason || 'дверь открыта. иди.', 1800);
   // разворачиваем камеру на дверь — иначе игрок не поймёт, куда идти
@@ -318,7 +358,6 @@ function faceDoor(opening) {
 function finishDoor() {
   const { door, target, opening } = pendingDoor;
   pendingDoor = null;
-  doorAnim = 0;
   scene3d?.closeDoor(door.id);
 
   // точка входа в новой комнате — у ТОЙ ЖЕ двери, с другой стороны,
@@ -346,6 +385,8 @@ function reload3d() {
   // камера разворачивается внутрь комнаты, а не в стену за спиной
   scene3d.setCharacter(world.pos.x, world.pos.z, world.facing, 'idle', torchOn ? 'flashlight' : null);
   scene3d.faceIntoRoom();
+  // дверь, через которую только что вошли, остаётся открытой, пока стоим рядом
+  currentOpenings();
 }
 
 // ─────────────────────────── цикл ───────────────────────────
@@ -364,8 +405,6 @@ function frame(now) {
     if (mode === '3d') {
       travelled = applyMovement(dt);
       updateUseHint();
-      // створка доезжает до конца за 0.55 с — видно, как она открывается
-      if (pendingDoor) doorAnim = Math.min(1, doorAnim + dt / 0.55);
     }
   }
 

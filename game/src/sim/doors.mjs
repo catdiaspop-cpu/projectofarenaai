@@ -82,7 +82,12 @@ export function entryPoint(door, room, offset = 0.35) {
   }
   const d = doorSide(door, room);
   const push = Math.max(0.3, Math.min(0.6, offset));
-  if (!d) return { x: att.x, z: att.z, side: null };
+  if (!d) {
+    // Дверь не на стене этой комнаты — например, люк в ПОЛУ: он лежит в
+    // плоскости комнаты, а не в стене. Ищем ближайшую стену и встаём от неё
+    // внутрь, иначе точка входа оказывается за пределами комнаты.
+    return clampIntoRoom(room, att, push);
+  }
   switch (d.side) {
     case 'n': return { x: att.x, z: push, side: 'n' };
     case 's': return { x: att.x, z: room.rect.d - push, side: 's' };
@@ -90,6 +95,30 @@ export function entryPoint(door, room, offset = 0.35) {
     case 'e': return { x: room.rect.w - push, z: att.z, side: 'e' };
     default: return { x: att.x, z: att.z, side: null };
   }
+}
+
+/**
+ * Задвинуть точку внутрь комнаты, если она оказалась за стеной.
+ *
+ * Нужно для люков в полу и потолке: у них нет стороны света, а центр может
+ * лежать на краю комнаты.
+ */
+function clampIntoRoom(room, p, push = 0.35) {
+  const hw = room.rect.w;
+  const hd = room.rect.d;
+  const distTo = {
+    n: p.z,
+    s: hd - p.z,
+    w: p.x,
+    e: hw - p.x,
+  };
+  const x = Math.min(hw - push, Math.max(push, p.x));
+  const z = Math.min(hd - push, Math.max(push, p.z));
+  // если и так внутри с запасом — оставляем как есть
+  if (p.x > push && p.x < hw - push && p.z > push && p.z < hd - push) {
+    return { x: p.x, z: p.z, side: null };
+  }
+  return { x, z, side: null };
 }
 
 /** Угол створки: 0 закрыто, ~1.4 рад (80°) открыто. */
@@ -102,7 +131,6 @@ export function leafAngle(t, open, cfg = DOOR) {
 /** Ось петли в локальных координатах комнаты: у какого косяка. */
 export function hingePoint(door, room) {
   const d = doorSide(door, room);
-  if (!d) return null;
   if (!d) return null;
   const w = HEIGHTS.door.w;
   const left = d.at - w / 2;

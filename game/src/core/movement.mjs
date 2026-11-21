@@ -53,16 +53,20 @@ export function crossedThreshold(pos, room, openings = []) {
   for (const o of openings) {
     const half = (o.to - o.from) / 2;
     const mid = o.from + half;
-    if (o.side === 'n' && pos.z < -SILL + 0.02 && Math.abs(pos.x - mid) <= half) {
+    // Порог = линия стены. Раньше условие требовало зайти почти на самый
+    // край разрешённой полосы (SILL минус 2 см), и при неудачном шаге мальчик
+    // застревал в проёме навсегда: до порога не дотянуться, а дальше не
+    // пускает проверка «не в стене». Теперь достаточно пересечь стену.
+    if (o.side === 'n' && pos.z < -0.02 && Math.abs(pos.x - mid) <= half) {
       return { side: 'n', out: { x: pos.x, z: 0 } };
     }
-    if (o.side === 's' && pos.z > room.d + SILL - 0.02 && Math.abs(pos.x - mid) <= half) {
+    if (o.side === 's' && pos.z > room.d + 0.02 && Math.abs(pos.x - mid) <= half) {
       return { side: 's', out: { x: pos.x, z: room.d } };
     }
-    if (o.side === 'w' && pos.x < -SILL + 0.02 && Math.abs(pos.z - mid) <= half) {
+    if (o.side === 'w' && pos.x < -0.02 && Math.abs(pos.z - mid) <= half) {
       return { side: 'w', out: { x: 0, z: pos.z } };
     }
-    if (o.side === 'e' && pos.x > room.w + SILL - 0.02 && Math.abs(pos.z - mid) <= half) {
+    if (o.side === 'e' && pos.x > room.w + 0.02 && Math.abs(pos.z - mid) <= half) {
       return { side: 'e', out: { x: room.w, z: pos.z } };
     }
   }
