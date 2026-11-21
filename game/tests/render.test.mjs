@@ -12,6 +12,8 @@ import { roomById, floors } from '../src/sim/graph.mjs';
 import { ROOMS, HEIGHTS, DOORS, LIGHTS, WINDOWS } from '../src/data/house.mjs';
 import { Character } from '../src/render/character.mjs';
 import { layoutFits } from '../src/render/house-preview.mjs';
+import { ROOM_LOOK } from '../src/data/rooms.mjs';
+import { sharedWallBoxes } from '../src/render/scene3d.mjs';
 
 let pass = 0, fail = 0;
 const errs = [];
@@ -92,12 +94,13 @@ t('оболочка каждой комнаты собирается и не с�
       }
     });
     totalTris += tris;
-    // 2800 на комнату: стена больше не одна коробка — появились панель,
-    // карниз и полосы обоев (это и есть «стена — пятно» → «стена — стена»).
-    // Всё это слито по материалам в 4–5 draw call, поэтому лимит по
-    // треугольникам здесь про GPU, а не про вызовы. Самая тяжёлая — коридор
-    // (12 м стен): 2624.
-    ok(tris < 2800, `${room.id}: оболочка ${tris} треугольников — тяжело`);
+    // 4400 на комнату: стена — это теперь настоящая отделка (плинтус с
+    // выносом, панель с филёнками, поясок, бордюр, карниз в два хода), а не
+    // одна коробка. Всё это слито по материалам, поэтому draw call не вырос:
+    // лимит по треугольникам здесь про GPU, а не про вызовы. Самая тяжёлая —
+    // коридор (12 м стен, 8 дверей): ~4200. Для сравнения, мальчик с руками
+    // и фонарём — это ещё ~2400, а весь дом с мебелью держится под 45 тыс.
+    ok(tris < 4400, `${room.id}: оболочка ${tris} треугольников — тяжело`);
     g.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
   }
   console.log(`      оболочка всего дома: ${totalTris} треугольников`);
@@ -246,6 +249,83 @@ t('разрез дома влезает на экран телефона', () =>
 });
 
 // ─────────────────────── ИТОГ ───────────────────────
+
+t('стена — не плоская плита: плинтус, панель с филёнками, поясок, карниз', () => {
+  // «Дизайн странный стен» — это когда стена одной коробкой. Проверяем
+  // СОСТАВ отделки, а не его вид: на каждой стене должен быть профиль,
+  // который выступает из плоскости стены, и филёнки другого цвета.
+  const bad = [];
+  for (const room of ROOMS) {
+    if (room.kind === 'yard' || room.kind === 'attic') continue;
+    const { parts } = roomShellParts(room);
+    const T = HEIGHTS.wallThickness;
+    const deeper = parts.filter((p) => {
+      const s = p.s ?? [p.w, p.h, p.d];
+      return (s[0] > T + 0.03 && s[0] < T + 0.12) || (s[2] > T + 0.03 && s[2] < T + 0.12);
+    });
+    if (deeper.length < 12) bad.push(`${room.id}: только ${deeper.length} профильных деталей`);
+    const matSet = new Set(parts.map((p) => p.mat));
+    if (matSet.size < 4) bad.push(`${room.id}: всего ${matSet.size} цветов на стене`);
+    // филёнка обязана быть ВЫСТУПОМ: утопленная в панель она не видна вообще
+    const rails = parts.filter((p) => p.mat === (ROOM_LOOK[room.kind]?.fillet ?? ''));
+    if (!rails.length) bad.push(`${room.id}: нет полей филёнок`);
+  }
+  ok(bad.length === 0, bad.join('; '));
+});
+
+t('стена не рисуется дважды: у «просвета» соседа нет общей стены', () => {
+  // Две грани в одной плоскости — это драка за z-буфер: стена мерцает рябью
+  // при любом движении камеры. Из-за этого и было «мигает всё».
+  const bad = [];
+  for (const room of ROOMS) {
+    if (room.kind === 'yard') continue;
+    for (const d of DOORS) {
+      if ((d.a !== room.id && d.b !== room.id) || d.stairs) continue;
+      const other = roomById(d.a === room.id ? d.b : d.a);
+      if (!other?.rect) continue;
+      const bare = roomShellParts(other, { bare: true }).parts;
+      const shared = sharedWallBoxes(room.rect, bare, {
+        dx: other.rect.x - room.rect.x,
+        dz: other.rect.z - room.rect.z,
+      });
+      if (shared.size === 0) bad.push(`${room.id} ⇄ ${other.id}: общая стена не найдена`);
+      // и «просвет» не должен остаться без стен вообще
+      if (bare.length - shared.size < 6) bad.push(`${room.id} ⇄ ${other.id}: у соседа исчезли все стены`);
+    }
+  }
+  ok(bad.length === 0, bad.join('; '));
+});
+
+t('лампа не мигает по кадрам: нет стробоскопа', () => {
+  // Прежняя формула (sin 17.3 + sin 6.1) давала ±15 % яркости почти три раза
+  // в секунду — это читалось как «мигает всё», потому что Lambert меняет
+  // яркость каждой грани комнаты. Теперь перепад за кадр не больше 0.5 %.
+  const st = { t: 0, flickerT: 3, flickerEnv: 0, flickerAge: 9, flickerN: 0 };
+  const stepF = (dt) => {
+    st.t += dt; st.flickerT -= dt;
+    if (st.flickerT <= 0) {
+      st.flickerN++;
+      const r = Math.abs(Math.sin(st.flickerN * 12.9898) * 43758.5453) % 1;
+      st.flickerT = 2.5 + r * 3.5;
+      st.flickerEnv = 0; st.flickerAge = 0;
+    }
+    st.flickerAge += dt;
+    const a = st.flickerAge;
+    const ramp = Math.min(1, a / 0.3);
+    const fall = Math.max(0, 1 - Math.max(0, a - 0.45) / 0.45);
+    st.flickerEnv = Math.min(ramp, fall);
+    return Math.sin(st.t * 1.7) * 0.01 - st.flickerEnv * 0.07;
+  };
+  let prev = stepF(0), worst = 0, lo = prev, hi = prev;
+  for (let i = 0; i < 3600; i++) {
+    const v = stepF(1 / 60);
+    worst = Math.max(worst, Math.abs(v - prev));
+    lo = Math.min(lo, v); hi = Math.max(hi, v);
+    prev = v;
+  }
+  ok(worst < 0.006, `перепад яркости за кадр ${(worst * 100).toFixed(2)} % — видно как мигание`);
+  ok(hi - lo < 0.1, `размах ${((hi - lo) * 100).toFixed(0)} % — свет пульсирует`);
+});
 console.log('');
 if (fail) {
   console.log(`✗ ПРОВАЛЕНО: ${fail}, пройдено: ${pass}\n`);

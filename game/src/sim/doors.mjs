@@ -29,10 +29,11 @@ export const DOOR = {
  */
 export function doorSide(door, room) {
   if (!door || !room) return null;
-  const isHatch = door.lock === 'люк в потолке' || door.lock === 'люк в полу';
-  if (isHatch) return null;
-  // stairs:true — это лестница между этажами, у неё нет створки в стене
-  if (door.stairs) return null;
+  // Лестницы и люки СТВОРКИ не имеют, но проём у них есть: раньше здесь
+  // возвращался null ДО поиска стороны, и проём не находился вообще — переход
+  // по такой двери вырождался в «вернулся туда же». Теперь сторона считается
+  // для всех дверей, а круглая створка просто не рисуется.
+  if (door.stairs) return null;   // см. doorOpening: у хода между этажами проём любой
   const lx = door.at.x - room.rect.x;
   const lz = door.at.z - room.rect.z;
   const near = (a, b, tol = 0.2) => Math.abs(a - b) < tol;
@@ -45,9 +46,15 @@ export function doorSide(door, room) {
 
 /** Проём для movement.mjs: где в комнате можно пройти сквозь стену. */
 export function doorOpening(door, room) {
+  // Ход между этажами (лестница, люк): створки нет, но пройти можно по всей
+  // ширине комнаты — это не дверь в стене, а вертикальный переход.
   if (door?.stairs) {
-    // лестница: проём по всей ширине стены, сквозь него идут на другой этаж
-    return { side: 'any', from: 0, to: room.rect.w, door: door.id, stairs: true };
+    // at — точка хода в локальных координатах ТЕКУЩЕЙ комнаты
+    return {
+      side: 'any', from: 0, to: Math.max(room.rect.w, room.rect.d),
+      at: { x: door.at.x - room.rect.x, z: door.at.z - room.rect.z },
+      door: door.id, stairs: true,
+    };
   }
   const d = doorSide(door, room);
   if (!d) return null;

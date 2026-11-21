@@ -44,7 +44,7 @@ export const LAYOUT = {
       // и мальчик физически не мог обойти её — «джойстик не работает».
       { prop: 'doubleBed',  id: 'bed',      x: 0.95, z: 1.75 },
       { prop: 'nightstand', id: 'stand-l',  x: 0.4,  z: 0.35 },
-      { prop: 'nightstand', id: 'stand-r',  x: 1.5,  z: 0.35 },
+      { prop: 'nightstand', id: 'stand-r',  x: 2.05, z: 0.35 },
       // комод и шкаф ЗАДНЕЙ стенкой к стене: rot π разворачивал корпус так,
       // что задница уходила на 5–10 см в стену (видно по мешам, не по габариту)
       { prop: 'dresser',    id: 'dresser',  x: 0.95, z: 3.12, rot: Math.PI },
@@ -63,7 +63,7 @@ export const LAYOUT = {
     ],
     clutter: [
       { prop: 'plate', id: 'plate', x: 0.4,  z: 0.35, y: 0.72, home: 'kitchen.counter', homeLabel: 'на кухню' },
-      { prop: 'mug',   id: 'mug',   x: 1.5,  z: 0.35, y: 0.72, home: 'kitchen.counter', homeLabel: 'на кухню' },
+      { prop: 'mug',   id: 'mug',   x: 2.05, z: 0.35, y: 0.72, home: 'kitchen.counter', homeLabel: 'на кухню' },
       { prop: 'scatteredClothes', id: 'clothes', x: 2.15, z: 2.05, y: 0.02, home: 'parents.wardrobe', homeLabel: 'в шкаф' },
     ],
   },
@@ -94,7 +94,7 @@ export const LAYOUT = {
       { prop: 'hallMirror',  id: 'mirror',   x: 2.6, z: 0.14 },
       { prop: 'bookshelf',   id: 'shelf',    x: 0.55, z: 0.22 },
       { prop: 'atticLadder', id: 'trapdoor', x: 4.2, z: 0.55 },
-      { prop: 'box',         id: 'box',      x: 7.6, z: 0.3 },
+      { prop: 'box',         id: 'box',      x: 6.7,  z: 0.32 },
       { prop: 'nightstand',  id: 'stand',    x: 7.5, z: 1.1 },
       // циферблат внутрь комнаты, иначе половина часов остаётся в стене
       { prop: 'wallClock',   id: 'clock',    x: 1.1, z: 0.2, rot: Math.PI / 2 },
@@ -115,7 +115,7 @@ export const LAYOUT = {
       { prop: 'staircase', id: 'steps', x: 0.7,  z: 2.05 },
       { prop: 'floorLamp', id: 'lamp',  x: 1.72, z: 0.45 },
       { prop: 'box',       id: 'box',   x: 1.72, z: 3.55 },
-      { prop: 'towelRail', id: 'rail',  x: 1.72, z: 2.6, rot: -Math.PI / 2 },
+      { prop: 'towelRail', id: 'rail',  x: 1.94, z: 2.6, rot: -Math.PI / 2 },
       { prop: 'wallClock', id: 'clock', x: 1.72, z: 2.9, y: 1.45, rot: -Math.PI / 2 },
       { prop: 'mug', id: 'mug2', x: 1.72, z: 0.45, y: 1.62, home: 'kitchen.counter', homeLabel: 'на кухню' },
       { prop: 'picture', id: 'picture', x: 0.2, z: 1.4, y: 1.45, rot: Math.PI / 2 },
@@ -167,7 +167,7 @@ export const LAYOUT = {
       { prop: 'wallClock',   id: 'clock', x: 3.7,  z: 0.2 },
       { prop: 'rug',         id: 'rug',   x: 2.0,  z: 3.1 },
       { prop: 'chair',       id: 'chair', x: 3.8,  z: 2.3, rot: 1.1 },
-      { prop: 'floorLamp',   id: 'lamp',  x: 4.25, z: 0.5 },
+      { prop: 'floorLamp',   id: 'lamp',  x: 4.25, z: 2.55 },
       { prop: 'table',       id: 'dining',x: 2.9,  z: 4.3 },
       { prop: 'curtains',    id: 'curtains', x: 1.6, z: 0.12, y: 0.66 },
       { prop: 'picture',     id: 'picture', x: 3.9,  z: 0.06, y: 1.5 },
@@ -186,7 +186,7 @@ export const LAYOUT = {
   // ══════════════════════ КУХНЯ (3.4 × 4.4) ══════════════════════
   kitchen: {
     items: [
-      { prop: 'fridge',      id: 'fridge', x: 0.36, z: 0.5 },
+      { prop: 'fridge',      id: 'fridge', x: 0.36, z: 1.62 },
       { prop: 'counter',     id: 'counter',x: 1.62, z: 0.32 },
       // мойка стоит НА столешнице (её верх 0.44), а не парила на 0.92
       // столешница 0.9–0.94; мойка стоит на ней, чуть утоплена
@@ -218,9 +218,9 @@ export const LAYOUT = {
   // ══════════════════════ КЛАДОВАЯ (3.4 × 3.6) ══════════════════════
   pantry: {
     items: [
-      { prop: 'box',        id: 'box1', x: 0.45, z: 0.45 },
-      { prop: 'box',        id: 'box2', x: 0.45, z: 0.95 },
-      { prop: 'box',        id: 'box3', x: 0.45, z: 0.45, y: 0.42 },
+      { prop: 'box',        id: 'box1', x: 1.0, z: 1.6 },
+      { prop: 'box',        id: 'box2', x: 1.0, z: 2.15 },
+      { prop: 'box',        id: 'box3', x: 0.45, z: 0.45 },
       { prop: 'skis',       id: 'skis', x: 1.6,  z: 0.3 },
       { prop: 'floorLamp',  id: 'lamp', x: 2.9,  z: 0.5 },
       { prop: 'shelfJars',  id: 'jars', x: 1.7,  z: 3.15, rot: Math.PI },
@@ -230,7 +230,7 @@ export const LAYOUT = {
       { prop: 'keyRack',     id: 'keys',  x: 0.1,  z: 2.0, y: 1.4, rot: Math.PI / 2 },
     ],
     clutter: [
-      { prop: 'flashlight', id: 'flashlight', x: 0.45, z: 0.95, y: 0.42, home: 'childroom.desk', homeLabel: 'в детскую' },
+      { prop: 'flashlight', id: 'flashlight', x: 0.95, z: 0.5, y: 0.02, home: 'childroom.desk', homeLabel: 'в детскую' },
       { prop: 'ball', id: 'ball', x: 1.9, z: 1.2, y: 0.02, home: 'childroom.toys', homeLabel: 'в детскую' },
     ],
   },
@@ -240,8 +240,8 @@ export const LAYOUT = {
     items: [
       { prop: 'rafters',     id: 'rafters',  x: 1.7, z: 1.7 },
       { prop: 'diaryBox',    id: 'diary',    x: 2.45, z: 2.95 },
-      { prop: 'box',         id: 'box1',     x: 0.45, z: 0.6 },
-      { prop: 'box',         id: 'box2',     x: 0.95, z: 0.6 },
+      { prop: 'box',         id: 'box1',     x: 2.9,  z: 0.5 },
+      { prop: 'box',         id: 'box2',     x: 0.9,  z: 3.05 },
       { prop: 'oldMattress', id: 'mattress', x: 2.4, z: 1.15, rot: Math.PI / 2 },
       { prop: 'cardboardBox', id: 'box3', x: 1.6, z: 3.0 },
       { prop: 'cardboardBox', id: 'box4', x: 1.6, z: 3.0, y: 0.42 },

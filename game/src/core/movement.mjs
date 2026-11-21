@@ -8,7 +8,18 @@
 
 export const BODY_RADIUS = 0.22;   // полутолщина мальчика
 export const PAD = 0.15;           // запас при обходе мебели
-export const SILL = 0.28;          // ширина порога у двери: в него можно войти
+/**
+ * Полоса порога, отсчитанная ОТ ЛИНИИ СТЕНЫ в обе стороны.
+ *
+ * Почему 0.32. Стена рисуется толщиной 0.22 по центру линии, тело мальчика —
+ * 0.22 от границы комнаты. Между «тело уже не влезает» (0.22) и «тело ещё не
+ * в пороге» не должно оставаться щели: раньше полоса была 0.28 с центром в
+ * стене, и на южной стене накрывала z от d−0.28 до d+0.28, то есть
+ * захватывала и за стеной. Из-за этого у двери получалась мёртвая зона ~10 см,
+ * в которую невозможно шагнуть, — мальчик застревал в полуметре от двери.
+ * 0.32 гарантированно перекрывает границу тела с обеих сторон.
+ */
+export const SILL = 0.32;
 
 /**
  * Влезает ли точка в комнату и не в мебель.
@@ -36,12 +47,24 @@ export function fits(pos, room, obstacles = [], openings = []) {
 
 /** Точка в полосе порога (в пределах SILL от стены). */
 export function pointInOpening(pos, room, o) {
+  // Ход между этажами (лестница, люк): створки нет, «порог» — вся комната.
+  // Мальчик входит в него, просто дойдя до нужного места.
+  if (o.side === 'any') return true;
   const half = (o.to - o.from) / 2;
   const mid = o.from + half;
-  if (o.side === 'n') return Math.abs(pos.z) <= SILL && Math.abs(pos.x - mid) <= half;
-  if (o.side === 's') return Math.abs(pos.z - room.d) <= SILL && Math.abs(pos.x - mid) <= half;
-  if (o.side === 'w') return Math.abs(pos.x) <= SILL && Math.abs(pos.z - mid) <= half;
-  if (o.side === 'e') return Math.abs(pos.x - room.w) <= SILL && Math.abs(pos.z - mid) <= half;
+  // Полоса порога считается ОТ ЛИНИИ СТЕНЫ и захватывает только внутреннюю
+  // сторону. Раньше она была симметричной (|pos.z − 0| ≤ SILL) и на южной
+  // стене накрывала z от d−SILL до d+SILL: за стеной, то есть вне комнаты.
+  // Из-за этого в порог нельзя было войти до самой стены — а вход в комнату
+  // как раз ставит мальчика в 0.36 от стены, и он оказывался зажат между
+  // ошибкой в полосе и проверкой границ. Та же симметрия была на всех стенах.
+  // По ширине — полпроёма БЕЗ телесной толщины: иначе мальчик «проходит
+  // сквозь косяк», а у проёма 0.85 остаётся реальный проход всего 0.41.
+  const inside = half - BODY_RADIUS + 0.04;
+  if (o.side === 'n') return pos.z >= -SILL && pos.z <= SILL && Math.abs(pos.x - mid) <= inside;
+  if (o.side === 's') return pos.z >= room.d - SILL && pos.z <= room.d + SILL && Math.abs(pos.x - mid) <= inside;
+  if (o.side === 'w') return pos.x >= -SILL && pos.x <= SILL && Math.abs(pos.z - mid) <= inside;
+  if (o.side === 'e') return pos.x >= room.w - SILL && pos.x <= room.w + SILL && Math.abs(pos.z - mid) <= inside;
   return false;
 }
 
@@ -51,6 +74,14 @@ export function pointInOpening(pos, room, o) {
  */
 export function crossedThreshold(pos, room, openings = []) {
   for (const o of openings) {
+    if (o.side === 'any') {
+      // вертикальный переход (лестница, люк): срабатывает, когда мальчик
+      // подошёл к точке хода — створки и стены здесь нет
+      if (o.at && Math.hypot(pos.x - o.at.x, pos.z - o.at.z) < 0.55) {
+        return { side: 'any', out: { x: o.at.x, z: o.at.z } };
+      }
+      continue;
+    }
     const half = (o.to - o.from) / 2;
     const mid = o.from + half;
     // Порог = линия стены. Раньше условие требовало зайти почти на самый

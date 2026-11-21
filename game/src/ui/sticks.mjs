@@ -19,9 +19,7 @@ import { Stick } from '../core/joystick.mjs';
 const SWIPE = {
   sensitivity: 0.0042,     // рад на пиксель: 240 px через экран ≈ 1 рад
   maxPerMove: 0.28,        // чтобы резкий рывок не «телепортировал» камеру
-  pitchLimit: [-0.95, 0.85],
-  tapMaxDist: 12,          // меньше — это тап, а не свайп
-  tapMaxMs: 220,
+  pitchLimit: [-0.62, 0.52],   // как в Scene3D: ниже −35° кадр уходит в ноги
 };
 
 const BUTTONS = [
@@ -33,10 +31,9 @@ const BUTTONS = [
 ];
 
 export class Sticks {
-  constructor(root, { onButton, onTap } = {}) {
+  constructor(root, { onButton } = {}) {
     this.root = root;
     this.onButton = onButton;
-    this.onTap = onTap;
     this.move = new Stick();
     this.look = { dx: 0, dy: 0, dragging: false, id: null, x0: 0, y0: 0, moved: 0, t0: 0 };
     this.sprint = false;
@@ -197,9 +194,11 @@ export class Sticks {
 
     const end = (e) => {
       if (!L.dragging || L.id !== e.pointerId) return;
-      const dt = performance.now() - L.t0;
-      // короткое касание без сдвига — это тап: «слушать»
-      if (L.moved < SWIPE.tapMaxDist && dt < SWIPE.tapMaxMs) this.onTap?.();
+      // ── тап больше НЕ включает «слушать» ──
+      // Было: короткое касание где угодно без сдвига = «слушать». Игрок
+      // промахивался мимо кнопки, касался экрана — и игра начинала слушать,
+      // мигала подсказка и настройки. Никаких скрытых действий от касания
+      // сцены: «слушать» есть кнопкой, там же, где остальное.
       L.dragging = false;
       L.id = null;
     };
