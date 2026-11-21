@@ -125,6 +125,22 @@ sticks = new Sticks(document.getElementById('controls'), {
 
 // ─────────────────────────── действие ───────────────────────────
 
+/** Ближайшая дверь этой комнаты в пределах reach. */
+function nearDoor(reach = 0.95) {
+  const room = world.roomData;
+  let best = null;
+  for (const d of DOORS) {
+    if (!d.b || (d.a !== world.room && d.b !== world.room)) continue;
+    const lx = d.at.x - room.rect.x;
+    const lz = d.at.z - room.rect.z;
+    const dist = Math.hypot(world.pos.x - lx, world.pos.z - lz);
+    if (dist < reach && (!best || dist < best.dist)) {
+      best = { door: d, dist, target: d.a === world.room ? d.b : d.a };
+    }
+  }
+  return best;
+}
+
 /** Ближайший предмет в комнате: до 1.2 м. */
 function nearestItem() {
   const lay = world.lay;
@@ -139,14 +155,7 @@ function nearestItem() {
 
 function useNearby() {
   // сначала дверь: если стоим у двери, «действие» = войти
-  const room = world.roomData;
-  const nearDoor = DOORS.some((d) => {
-    if (!d.b || (d.a !== world.room && d.b !== world.room)) return false;
-    const lx = d.at.x - room.rect.x;
-    const lz = d.at.z - room.rect.z;
-    return Math.hypot(world.pos.x - lx, world.pos.z - lz) < 0.95;
-  });
-  if (nearDoor) { tryDoor(); return; }
+  if (nearDoor(0.95)) { tryDoor(); return; }
 
   const it = nearestItem();
   if (!it) {
@@ -178,7 +187,15 @@ function applyMovement(dt) {
     return;
   }
 
-  const speed = sticks.move.speedFor(SPEED.walk ?? 0.95, SPEED.run ?? 1.75, !crouch);
+  // скорость: крадусь — SPEED.sneak, шаг — SPEED.normal, бег — SPEED.run.
+  // Бег только по кнопке: иначе на телефоне мальчик случайно переходит на бег
+  // от полного наклона стика и вся задумка «тихо» ломается.
+  const mag = Math.min(1, Math.hypot(sticks.move.value.x, sticks.move.value.y));
+  const speed = crouch
+    ? SPEED.sneak
+    : sticks.sprint
+      ? SPEED.run
+      : SPEED.sneak + (SPEED.normal - SPEED.sneak) * Math.min(1, mag * 1.35);
   // Стик вверх = вперёд ОТНОСИТЕЛЬНО КАМЕРЫ.
   // Оси взяты из реальной матрицы three.js (проверено тестом camera-direction):
   //   forward = (-sin yaw, -cos yaw), right = (cos yaw, -sin yaw)
@@ -218,7 +235,7 @@ function applyMovement(dt) {
   }
 
   world.facing = Math.atan2(dx, dz);
-  world.mode = st.state;
+  world.mode = crouch ? 'sneak' : sticks.sprint ? 'run' : 'walk';
   world.moving = true;
 }
 
@@ -228,25 +245,13 @@ function applyMovement(dt) {
  * Переход в другую комнату: если мальчик стоит у двери — идём в соседнюю.
  * Двери берём из данных дома, а не списком в коде.
  */
-function tryDoor() {
-  const room = world.roomData;
-  const near = DOORS
-    .filter((d) => d.b && (d.a === world.room || d.b === world.room))
-    .map((d) => {
-      const lx = d.at.x - room.rect.x;
-      const lz = d.at.z - room.rect.z;
-      const dist = Math.hypot(world.pos.x - lx, world.pos.z - lz);
-      const target = d.a === world.room ? d.b : d.a;
-      return { door: d, dist, target };
-    })
-    .filter((x) => x.dist < 0.95)
-    .sort((a, b) => a.dist - b.dist);
-
-  if (!near.length) {
+function tryDoor(reach = 0.95) {
+  const near = nearDoor(reach);
+  if (!near) {
     hud.toast('надо подойти к двери.', 1600);
     return;
   }
-  const { door, target } = near[0];
+  const { door, target } = near;
   if (door.lock && !world.doorFlags[door.id]) {
     hud.toast(`${door.lock}: пока закрыто.`, 2000);
     return;
@@ -282,15 +287,7 @@ function frame(now) {
     world.update(dt);
     if (mode === '3d') {
       applyMovement(dt);
-      // у двери показываем подсказку
-      const room = world.roomData;
-      if (world.pos.z > room.rect.d - 0.8) {
-        const btn = document.querySelector('[data-act="use"]');
-        btn?.classList.add('near-door');
-      } else {
-        const btn = document.querySelector('[data-act="use"]');
-        btn?.classList.remove('near-door');
-      }
+      updateUseHint();
     }
   }
 
@@ -306,6 +303,24 @@ function frame(now) {
   world.drainEvents();
 
   requestAnimationFrame(frame);
+}
+
+/**
+ * Подсветка кнопки «действие»: горит, когда рядом дверь или предмет.
+ * Раньше проверялась только дальняя стена по z — в комнатах с дверью сбоку
+ * (коридор, ванная, кухня) подсказка не загоралась никогда.
+ */
+let hintState = null;
+function updateUseHint() {
+  const canDoor = Boolean(nearDoor(0.95));
+  const canItem = Boolean(nearestItem());
+  const next = canDoor ? 'door' : canItem ? 'item' : null;
+  if (next === hintState) return;   // не трогаем DOM каждый кадр
+  hintState = next;
+  const btn = document.querySelector('[data-act="use"]');
+  if (!btn) return;
+  btn.classList.toggle('near-door', next === 'door');
+  btn.classList.toggle('ready', next === 'item');
 }
 
 function charState() {

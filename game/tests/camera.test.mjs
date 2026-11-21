@@ -26,11 +26,14 @@ function cameraPose(roomId, pos, yaw, pitch, opts = {}) {
     focus.z + back.z + right.z * shoulder,
   );
   // Ровно та же логика, что в scene3d: поджать дистанцию, иначе подняться выше
-  const hw = room.rect.w / 2 - 0.3;
-  const hd = room.rect.d / 2 - 0.3;
+  // в тесной комнате (коридор 1.5 м) запас 0.3 м съедает всё место:
+  // даём камере стоять ближе к стене, но не в ней
+  const margin = Math.min(0.3, Math.min(room.rect.w, room.rect.d) * 0.18);
+  const hw = room.rect.w / 2 - margin;
+  const hd = room.rect.d / 2 - margin;
   const fits = (v) => Math.abs(v.x) < hw && Math.abs(v.z) < hd;
   if (!fits(desired)) {
-    for (let k = 0.95; k >= 0.2; k -= 0.15) {
+    for (let k = 0.95; k >= 0.45; k -= 0.1) {
       desired.set(
         focus.x + back.x * k + right.x * shoulder * k,
         camHeight + Math.sin(pitch) * 1.1,
@@ -39,10 +42,13 @@ function cameraPose(roomId, pos, yaw, pitch, opts = {}) {
       if (fits(desired)) break;
     }
     if (!fits(desired)) {
+      const room2 = Math.max(0.05, Math.min(hd - Math.abs(focus.z), hd) * 0.92);
+      const along = back.z !== 0 ? back.z / Math.abs(back.z) : 0;
+      const side = back.x !== 0 ? back.x / Math.abs(back.x) : 0;
       desired.set(
-        focus.x + back.x * camDist * 0.12 + right.x * 0.2,
-        camHeight + 0.85,
-        focus.z + back.z * camDist * 0.12 + right.z * 0.2,
+        focus.x + side * room2 * 0.5 + right.x * 0.16,
+        camHeight + 0.58,
+        focus.z + along * room2 + right.z * 0.16,
       );
     }
     desired.x = Math.max(-hw, Math.min(hw, desired.x));

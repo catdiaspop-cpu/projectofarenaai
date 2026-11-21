@@ -188,103 +188,6 @@ html, body {
 }
 .hud-toast.out { opacity: 0; transform: translateY(-6px); }
 
-/* ─────────────── Низ: полоса предметов и кнопки ─────────────── */
-
-.hud-bottom {
-  padding: 0 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.hud-bar {
-  display: flex;
-  gap: 6px;
-  overflow-x: auto;
-  scrollbar-width: none;
-  padding: 2px 2px 6px;
-  mask-image: linear-gradient(90deg, transparent 0, #000 12px, #000 calc(100% - 12px), transparent 100%);
-}
-.hud-bar::-webkit-scrollbar { display: none; }
-
-.pill {
-  flex: 0 0 auto;
-  padding: 8px 12px;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 195, 122, 0.22);
-  background: rgba(12, 16, 22, 0.7);
-  color: rgba(255, 232, 200, 0.86);
-  font-size: 13px;
-  font-family: var(--font);
-  white-space: nowrap;
-  backdrop-filter: blur(8px);
-  transition: transform 120ms ease, border-color 160ms ease, background 160ms ease;
-}
-.pill:active { transform: scale(0.96); }
-.pill.hint {
-  border-color: rgba(255, 195, 122, 0.7);
-  box-shadow: 0 0 0 1px rgba(255, 195, 122, 0.25), 0 0 18px -4px rgba(255, 195, 122, 0.6);
-  animation: hint-breathe 1.6s ease-in-out infinite;
-}
-@keyframes hint-breathe {
-  0%, 100% { box-shadow: 0 0 0 1px rgba(255,195,122,0.2), 0 0 14px -6px rgba(255,195,122,0.5); }
-  50% { box-shadow: 0 0 0 1px rgba(255,195,122,0.45), 0 0 22px -2px rgba(255,195,122,0.8); }
-}
-.pill-clutter { opacity: 0.82; }
-
-.hud-buttons {
-  display: grid;
-  grid-template-columns: 1fr 1.35fr 1fr;
-  gap: 8px;
-}
-.hud-btn {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-  min-height: 62px;
-  padding: 8px 6px;
-  border-radius: 16px;
-  border: 1px solid rgba(232, 226, 210, 0.14);
-  background: linear-gradient(180deg, rgba(22, 30, 40, 0.86), rgba(10, 14, 19, 0.9));
-  color: rgba(232, 226, 210, 0.86);
-  font-family: var(--font);
-  backdrop-filter: blur(10px);
-  transition: transform 100ms ease, border-color 140ms ease;
-}
-.hud-btn:active { transform: scale(0.97); }
-.hud-btn .glyph { font-size: 18px; line-height: 1; color: var(--amber); }
-.hud-btn .label { font-size: 11px; letter-spacing: 0.04em; color: rgba(232, 226, 210, 0.6); }
-.hud-btn-main {
-  border-color: rgba(255, 195, 122, 0.4);
-  background: linear-gradient(180deg, rgba(66, 46, 24, 0.9), rgba(30, 22, 14, 0.92));
-  box-shadow: inset 0 1px 0 rgba(255, 220, 170, 0.18), 0 6px 20px -10px rgba(255, 180, 90, 0.7);
-}
-.hud-btn-main .glyph { font-size: 24px; }
-.hud-btn.on { border-color: rgba(255, 195, 122, 0.8); }
-
-.hud-under {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  padding-bottom: 2px;
-}
-.hud-mini {
-  padding: 11px 8px;
-  border-radius: 12px;
-  border: 1px dashed rgba(232, 226, 210, 0.16);
-  background: rgba(10, 14, 19, 0.5);
-  color: rgba(232, 226, 210, 0.55);
-  font-size: 12px;
-  font-family: var(--font);
-}
-.hud-mini.on {
-  border-style: solid;
-  border-color: rgba(255, 195, 122, 0.6);
-  color: var(--amber);
-}
-
 /* ─────────────── Заставка ─────────────── */
 
 .boot {
@@ -366,10 +269,11 @@ html, body {
 .controls {
   position: absolute;
   inset: 0;
-  pointer-events: none;
+  pointer-events: none;   /* сам слой прозрачен для касаний */
   z-index: 6;
 }
-.controls.ready { pointer-events: auto; }
+/* .ready больше не включает перехват на весь экран: иначе он съедает HUD.
+   Касания ловят только зоны стиков и кнопки — у них pointer-events: auto. */
 
 .stick-zone {
   position: absolute;
@@ -385,14 +289,16 @@ html, body {
 .stick {
   position: absolute;
   width: 0; height: 0;
-  left: 25%;
-  bottom: 22%;
-  transform: translate(-50%, 50%);
+  left: 0; top: 0;
   pointer-events: none;
-  opacity: 0.42;
+  opacity: 0.38;
   transition: opacity 160ms ease;
 }
-.stick.active { opacity: 1; left: var(--x, 25%); }
+/* места по умолчанию: левый внизу слева, правый внизу справа */
+.stick-move { left: 26%; bottom: 26%; }
+.stick-look { right: 26%; bottom: 26%; left: auto; }
+.stick-look .stick-label { display: none; }
+.stick.active { opacity: 1; }
 
 .stick-base {
   position: absolute;
@@ -471,9 +377,19 @@ html, body {
 
 /* подсветка кнопки «действие», когда рядом дверь или предмет */
 .act-main.near-door,
-.act-main:focus-visible {
+.act-main.ready {
   border-color: rgba(255, 220, 160, 0.95);
   animation: hint-breathe 1.5s ease-in-out infinite;
+}
+/* предмет — спокойнее двери: подсказка, а не приглашение */
+.act-main.ready {
+  border-color: rgba(190, 220, 255, 0.8);
+  animation: none;
+  box-shadow: 0 0 14px -6px rgba(150, 200, 255, 0.9);
+}
+@keyframes hint-breathe {
+  0%, 100% { box-shadow: 0 0 12px -6px rgba(255, 190, 110, 0.7); }
+  50% { box-shadow: 0 0 26px -4px rgba(255, 205, 140, 1); }
 }
 
 /* когда идёт 3D, HUD-заголовок комнаты не должен мешать смотреть */

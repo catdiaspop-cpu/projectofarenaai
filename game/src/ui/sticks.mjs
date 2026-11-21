@@ -19,20 +19,21 @@ export class Sticks {
     this.look = new Stick();
     this.sprint = false;
 
+    // ВАЖНО: зоны захвата и видимые кружки — братья, а не родитель и ребёнок.
+    // Иначе `left: x px` считается от зоны (пол-экрана), а палец — от всего
+    // экрана, и кружок уезжает вбок на четверть экрана.
     root.innerHTML = `
-      <div class="stick-zone stick-zone-left" data-zone="move">
-        <div class="stick" data-stick="move">
-          <div class="stick-base"></div>
-          <div class="stick-knob"></div>
-          <div class="stick-label">идти</div>
-        </div>
+      <div class="stick-zone stick-zone-left" data-zone="move"></div>
+      <div class="stick-zone stick-zone-right" data-zone="look"></div>
+      <div class="stick stick-move" data-stick="move">
+        <div class="stick-base"></div>
+        <div class="stick-knob"></div>
+        <div class="stick-label">идти</div>
       </div>
-      <div class="stick-zone stick-zone-right" data-zone="look">
-        <div class="stick" data-stick="look">
-          <div class="stick-base"></div>
-          <div class="stick-knob"></div>
-          <div class="stick-label">смотреть</div>
-        </div>
+      <div class="stick stick-look" data-stick="look">
+        <div class="stick-base"></div>
+        <div class="stick-knob"></div>
+        <div class="stick-label">смотреть</div>
       </div>
       <div class="action-buttons">
         <button class="act" data-act="torch" aria-label="Фонарь"><span>фонарь</span></button>
