@@ -5,6 +5,7 @@
 import * as THREE from '../vendor/three/three.min.js';
 import { FP, handPoint } from '../src/render/viewmodel.mjs';
 import { BODY } from '../src/world/character.mjs';
+import { Character } from '../src/render/character.mjs';
 
 let pass = 0, fail = 0;
 const errs = [];
@@ -101,6 +102,26 @@ t('рука занимает угол экрана, а не половину', (
 t('на узком экране поле зрения расширяется, а не сужается', () => {
   const wide = 74, narrow = FP.fov + 6;
   ok(narrow > wide - 8, 'на вертикальном телефоне обзор не шире');
+});
+
+t('вниз видно своё тело, а не пустой пол', () => {
+  // Голова и руки скрыты (они и есть камера), но корпус и ноги должны
+  // оставаться: иначе, посмотрев вниз, видишь пустоту — будто ты призрак.
+  const ch = new Character();
+  ch.setFirstPerson(true);
+  ch.root.updateMatrixWorld(true);
+  ok(ch.head.visible === false, 'голова торчит в кадре');
+  ok(ch.torso.visible === true, 'корпус спрятан');
+  ok(ch.legL.U.visible === true && ch.legR.U.visible === true, 'ног нет — вниз смотреть не на что');
+  ok(ch.legL.FT.visible === true, 'ступни спрятаны');
+});
+
+t('колени и носки попадают в кадр при взгляде вниз', () => {
+  const cam = fpCam({ pitch: -0.9 });
+  // колено на 0.23 м, носок в 0.16 м впереди — как в модели
+  const knee = visible(cam, new THREE.Vector3(0.08, 0.28, -0.18));
+  const toe = visible(cam, new THREE.Vector3(0.08, 0.03, -0.20));
+  ok(knee.ok || toe.ok, 'ни коленей, ни носков не видно — тело спрятано целиком');
 });
 
 console.log('');
