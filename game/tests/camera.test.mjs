@@ -14,10 +14,10 @@ const ok = (c, m) => { if (!c) throw new Error(m); };
 /** Повторяем математику камеры из scene3d, чтобы проверить её без WebGL. */
 function cameraPose(roomId, pos, yaw, pitch, opts = {}) {
   const room = roomById(roomId);
-  const camDist = opts.camDist ?? 1.9;
-  const camHeight = opts.camHeight ?? 1.58;
+  const camDist = opts.camDist ?? 1.35;
+  const camHeight = opts.camHeight ?? 2.0;
   const shoulder = opts.camShoulder ?? 0.34;
-  const focus = new THREE.Vector3(pos.x - room.rect.w / 2, 1.12, pos.z - room.rect.d / 2);
+  const focus = new THREE.Vector3(pos.x - room.rect.w / 2, 1.02, pos.z - room.rect.d / 2);
   const back = new THREE.Vector3(Math.sin(yaw) * camDist, 0, Math.cos(yaw) * camDist);
   const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
   const desired = new THREE.Vector3(
@@ -58,14 +58,14 @@ function cameraPose(roomId, pos, yaw, pitch, opts = {}) {
 }
 
 t('камера стоит позади мальчика, а не внутри него', () => {
-  const p = cameraPose('childroom', { x: 1.8, z: 1.53 }, 0, -0.2);
+  const p = cameraPose('childroom', { x: 1.8, z: 1.53 }, Math.PI, -0.3);
   const d = Math.hypot(p.cam.x - p.focus.x, p.cam.z - p.focus.z);
   ok(d > 0.9, `камера в ${d.toFixed(2)} м от мальчика — слишком близко, его не видно`);
   ok(d < 3.2, `камера в ${d.toFixed(2)} м — мальчик будет крошкой`);
 });
 
 t('камера выше мальчика и смотрит на него', () => {
-  const p = cameraPose('childroom', { x: 1.8, z: 1.53 }, 0, -0.2);
+  const p = cameraPose('childroom', { x: 1.8, z: 1.53 }, Math.PI, -0.3);
   ok(p.cam.y > 1.22, `камера на ${p.cam.y.toFixed(2)} м — на уровне головы мальчика`);
   ok(p.focus.y < p.cam.y, 'камера смотрит вверх, а должна вниз');
 });
@@ -75,7 +75,7 @@ t('камера не смотрит в стену на старте', () => {
   for (const id of ['childroom', 'kitchen', 'living', 'hall', 'corridor', 'bath']) {
     const room = roomById(id);
     const pos = { x: room.rect.w / 2, z: room.rect.d * 0.45 };
-    const p = cameraPose(id, pos, 0, -0.2);
+    const p = cameraPose(id, pos, Math.PI, -0.3);
     ok(p.inside, `${id}: камера в стене на старте`);
   }
 });
