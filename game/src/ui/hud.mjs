@@ -61,10 +61,15 @@ export class Hud {
     }
   }
 
+  /**
+   * Шкала: полоска и подпись ПОД ней.
+   * Раньше справа стояла одна буква («С», «С», «Т» — две одинаковые), и по
+   * ней нельзя было понять, что кончается. Подпись мелкая, но читаемая.
+   */
   scaleRow(key, label, color) {
     return `
       <div class="hud-scale" data-scale="${key}" title="${label}">
-        <i style="--c:${color}"></i><span>${label[0].toUpperCase()}</span>
+        <i style="--c:${color}"></i><span>${label}</span>
       </div>`;
   }
 

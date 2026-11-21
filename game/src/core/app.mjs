@@ -77,29 +77,63 @@ export class World {
     return e;
   }
 
-  /** Препятствия комнаты для ходьбы (в локальных координатах). */
+  /**
+   * Препятствия комнаты для ходьбы (в локальных координатах).
+   *
+   * Что НЕ является препятствием и почему это была ошибка:
+   *   * настенный декор (картины, полки, шторы, выключатели, часы) — они
+   *     висят на высоте 1.1–1.5 м, но их проекция на пол попадала в список,
+   *     и вдоль стен появлялись невидимые бордюры;
+   *   * стропила чердака: footprint 3×3 на комнату 3.4×3.4 — накрывали ВЕСЬ
+   *     пол, свободного места оставалось 0%, и мальчик не мог шагнуть вообще;
+   *   * ковры и половики — по ним и надо ходить;
+   *   * мелочь на полу (игрушки, носки) — она не выше щиколотки, об неё не
+   *     спотыкаются, а «застрял на кубике» — худшая из возможных поломок.
+   *
+   * Плюс запас PAD при обходе уже учтён в movement.mjs, здесь чистые габариты.
+   */
   obstacles() {
     const out = [];
-    for (const it of this.lay.items) {
-      const prop = PROPS[it.prop];
+    const NOT_AN_OBSTACLE = new Set(['flat', 'wall', 'decoration', 'ceiling']);
+    const LOW = 0.30;      // всё, что ниже щиколотки, ноги переступают
+
+    const footprintOf = (it, prop) => {
       const fp = prop.footprint ?? { w: 0.3, d: 0.3 };
-      if (['rug', 'runner', 'mat', 'doormat'].includes(it.prop)) continue;
-      if (prop.tags?.includes('flat')) continue;
       const rot = it.rot ?? 0;
       const c = Math.abs(Math.cos(rot)), s = Math.abs(Math.sin(rot));
-      const w = fp.w * c + fp.d * s, d = fp.w * s + fp.d * c;
+      return {
+        w: fp.w * c + fp.d * s,
+        d: fp.w * s + fp.d * c,
+      };
+    };
+
+    for (const it of this.lay.items) {
+      const prop = PROPS[it.prop];
+      if (!prop) continue;
+      if (NOT_AN_OBSTACLE.has(it.prop)) continue;
+      if (prop.tags?.some((t) => NOT_AN_OBSTACLE.has(t))) continue;
+      if ((it.y ?? 0) > 0.02) continue;            // висит или стоит на мебели
+      if (prop.height !== undefined && prop.height < LOW) continue;
+      // footprint — габарит целиком (его видно и по нему считается место на
+      // плане), а base — то, что реально мешает НОГАМ: площадка под первой
+      // ступенью лестницы, ножки кровати. Без этого «под лестницей нет пола».
+      const base = prop.base;
+      const fp = base && base.w !== undefined ? base : (prop.footprint ?? { w: 0.3, d: 0.3 });
+      const { w, d } = footprintOf(it, { footprint: fp });
       out.push({
         id: it.id,
         x0: it.x - w / 2, x1: it.x + w / 2,
         z0: it.z - d / 2, z1: it.z + d / 2,
       });
     }
+
     for (const it of this.lay.clutter) {
-      if (it.y > 0.1) continue; // мелочь на мебели не мешает ногам
-      const fp = PROPS[it.prop].footprint ?? { w: 0.2, d: 0.2 };
-      const rot = it.rot ?? 0;
-      const c = Math.abs(Math.cos(rot)), s = Math.abs(Math.sin(rot));
-      const w = fp.w * c + fp.d * s, d = fp.w * s + fp.d * c;
+      const prop = PROPS[it.prop];
+      if (!prop) continue;
+      if ((it.y ?? 0) > 0.1) continue;             // мелочь на мебели не мешает ногам
+      if (prop.tags?.some((t) => NOT_AN_OBSTACLE.has(t))) continue;
+      if (prop.height !== undefined && prop.height < LOW) continue;
+      const { w, d } = footprintOf(it, prop);
       out.push({
         id: it.id,
         x0: it.x - w / 2, x1: it.x + w / 2,
@@ -108,6 +142,52 @@ export class World {
       });
     }
     return out;
+  }
+
+  /**
+   * Ближайшая точка, где мальчик помещается. Нужна на входе в комнату и на
+   * старте: спавн по умолчанию (1.7, 2.7) в четырёх комнатах из одиннадцати
+   * приходился ВНУТРЬ мебели, и первый же шаг отменялся проверкой «не в
+   * стене» — джойстик при этом исправно работал, но мальчик стоял.
+   */
+  safeSpot(x, z) {
+    const r = this.roomData.rect;
+    const obs = this.obstacles();
+    const fits = (px, pz) => {
+      if (px < 0.26 || pz < 0.26 || px > r.w - 0.26 || pz > r.d - 0.26) return false;
+      for (const o of obs) {
+        if (px > o.x0 - 0.2 && px < o.x1 + 0.2 && pz > o.z0 - 0.2 && pz < o.z1 + 0.2) return false;
+      }
+      return true;
+    };
+    // запас до ближайшей мебели и стены — чтобы не появляться вплотную к шкафу
+    const clearance = (px, pz) => {
+      let best = Math.min(px, pz, r.w - px, r.d - pz);
+      for (const o of obs) {
+        const dx = Math.max(o.x0 - px, 0, px - o.x1);
+        const dz = Math.max(o.z0 - pz, 0, pz - o.z1);
+        best = Math.min(best, Math.hypot(dx, dz));
+      }
+      return best;
+    };
+    // Расходящаяся спираль до 3.5 м — этого хватает на любую комнату дома.
+    // Берём САМУЮ свободную точку из всех колец, а не первую попавшуюся:
+    // иначе мальчик появлялся вплотную к кровати, и весь экран занимала она.
+    let best = null;
+    for (let ring = 0.1; ring < 3.5; ring += 0.12) {
+      const steps = Math.max(10, Math.round(ring * 16));
+      for (let i = 0; i < steps; i++) {
+        const a = (i / steps) * Math.PI * 2;
+        const px = x + Math.cos(a) * ring;
+        const pz = z + Math.sin(a) * ring;
+        if (!fits(px, pz)) continue;
+        const c = clearance(px, pz);
+        if (!best || c > best.c) best = { x: px, z: pz, c };
+      }
+      if (best && best.c >= 1.1) break;   // есть простор — дальше не ищем
+    }
+    if (best) return { x: best.x, z: best.z };
+    return { x: r.w / 2, z: r.d / 2 };
   }
 
   /** Идти к точке комнаты (локальные координаты). */
@@ -165,7 +245,9 @@ export class World {
     const from = this.room;
     if (!roomId) return false;
     this.room = roomId;
-    this.pos = { x: entry.x, z: entry.z };
+    // Точка входа — у двери, но если там стоит шкаф, мальчик оказывался
+    // внутри мебели: шаг отменялся проверкой, и он «не мог двинуться».
+    this.pos = this.safeSpot(entry.x, entry.z);
     this.path = null;
     this.walkProgress = null;
     this.mode = 'idle';

@@ -37,12 +37,15 @@ export const LAYOUT = {
   // ══════════════════════ СПАЛЬНЯ РОДИТЕЛЕЙ (3.4 × 3.4) ══════════════════════
   parents: {
     items: [
-      { prop: 'doubleBed',  id: 'bed',      x: 1.35, z: 1.55 },
-      { prop: 'nightstand', id: 'stand-l',  x: 0.35, z: 1.1 },
-      { prop: 'nightstand', id: 'stand-r',  x: 2.42, z: 1.62 },
-      { prop: 'dresser',    id: 'dresser',  x: 1.35, z: 3.0, rot: Math.PI },
-      { prop: 'wardrobe',   id: 'wardrobe', x: 2.9, z: 0.95, rot: Math.PI },
-      { prop: 'chair',      id: 'chair',    x: 2.75, z: 2.4, rot: -0.5 },
+      // Кровать прижата к западной стене, а не стоит по центру: в комнате
+      // 3.4 × 3.4 двуспальная кровать 1.6 × 2.0 оставляла проход 0.23 м,
+      // и мальчик физически не мог обойти её — «джойстик не работает».
+      { prop: 'doubleBed',  id: 'bed',      x: 0.95, z: 1.75 },
+      { prop: 'nightstand', id: 'stand-l',  x: 0.4,  z: 0.35 },
+      { prop: 'nightstand', id: 'stand-r',  x: 1.5,  z: 0.35 },
+      { prop: 'dresser',    id: 'dresser',  x: 0.95, z: 3.2, rot: Math.PI },
+      { prop: 'wardrobe',   id: 'wardrobe', x: 2.95, z: 1.95, rot: Math.PI },
+      { prop: 'chair',      id: 'chair',    x: 2.05, z: 2.85, rot: -0.5 },
       { prop: 'curtains',   id: 'curtains', x: 1.6,  z: 0.12, y: 1.02 },
       { prop: 'picture',    id: 'picture',  x: 3.25, z: 0.06, y: 1.42 },
       { prop: 'wallClock',  id: 'clock',    x: 0.3,  z: 0.08 },
@@ -50,8 +53,8 @@ export const LAYOUT = {
       { prop: 'cardboardBox', id: 'box',    x: 0.6,  z: 2.9 },
     ],
     clutter: [
-      { prop: 'plate', id: 'plate', x: 0.4,  z: 1.1, y: 0.55, home: 'kitchen.counter', homeLabel: 'на кухню' },
-      { prop: 'mug',   id: 'mug',   x: 2.35, z: 1.1, y: 0.55, home: 'kitchen.counter', homeLabel: 'на кухню' },
+      { prop: 'plate', id: 'plate', x: 0.4,  z: 0.35, y: 0.55, home: 'kitchen.counter', homeLabel: 'на кухню' },
+      { prop: 'mug',   id: 'mug',   x: 1.5,  z: 0.35, y: 0.55, home: 'kitchen.counter', homeLabel: 'на кухню' },
       { prop: 'scatteredClothes', id: 'clothes', x: 2.15, z: 2.05, y: 0.02, home: 'parents.wardrobe', homeLabel: 'в шкаф' },
     ],
   },

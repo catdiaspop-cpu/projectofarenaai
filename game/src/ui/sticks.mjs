@@ -25,11 +25,11 @@ const SWIPE = {
 };
 
 const BUTTONS = [
-  { act: 'torch', label: 'фонарь' },
-  { act: 'crouch', label: 'присесть' },
-  { act: 'listen', label: 'слушать' },
-  { act: 'use', label: 'действие', main: true },
-  { act: 'map', label: 'карта' },
+  { act: 'torch',  label: 'фонарь',   icon: '☀' },
+  { act: 'crouch', label: 'присесть', icon: '⌄' },
+  { act: 'listen', label: 'слушать',  icon: '◔' },
+  { act: 'use',    label: 'взять',    icon: '✋', main: true },
+  { act: 'map',    label: 'карта',    icon: '▤' },
 ];
 
 export class Sticks {
@@ -46,11 +46,14 @@ export class Sticks {
     this.buttonsVisible = false;
 
     // Камера свайпом — по ВСЕМУ экрану, кроме нижнего левого угла под стик.
-    // Раньше свайп работал только по правой половине, и повернуть взгляд,
-    // не отпуская стик, было нельзя. Правая половина уходит вперёд по слоям.
+    // ПОРЯДОК В РАЗМЕТКЕ ВАЖЕН: зона свайпа идёт ПЕРВОЙ, зона стика поверх
+    // неё (плюс z-index в CSS). Раньше было наоборот — зона свайпа шириной
+    // 100% лежала сверху и съедала все касания в левом низу. Стик при этом
+    // исправно двигался кодом, но до кода касание не доходило: любое движение
+    // пальца в левом низу крутило камеру. Это и было «джойстик не работает».
     root.innerHTML = `
-      <div class="stick-zone stick-zone-left" data-zone="move"></div>
       <div class="look-zone" data-zone="look"></div>
+      <div class="stick-zone" data-zone="move"></div>
       <div class="stick stick-move" data-stick="move">
         <div class="stick-base"></div>
         <div class="stick-knob"></div>
@@ -58,7 +61,7 @@ export class Sticks {
       <div class="action-buttons" data-buttons>
         ${BUTTONS.map((b) => `
           <button class="act${b.main ? ' act-main' : ''}" data-act="${b.act}" aria-label="${b.label}">
-            <span>${b.label}</span>
+            <i aria-hidden="true">${b.icon ?? ''}</i><span>${b.label}</span>
           </button>`).join('')}
       </div>
     `;
@@ -72,6 +75,26 @@ export class Sticks {
     this.bindMove();
     this.bindLook();
     this.bindButtons();
+    this.placeStick(null);
+    window.addEventListener('resize', () => this.placeStick(this.move.active ? this.move.base : null));
+  }
+
+  /**
+   * Поставить базу стика. null — вернуть на «домашнюю» позицию в левом низу.
+   * Домашняя позиция считается от размера экрана, а не процентами в CSS:
+   * на телефоне 26%/24% от 380 px — это 99 px от левого края и 91 px от низа,
+   * и кружок наполовину уезжает под большой палец, который держит телефон.
+   */
+  placeStick(pt) {
+    const el = this.el.moveStick;
+    if (!el) return;
+    const w = this.root.clientWidth || window.innerWidth || 380;
+    const h = this.root.clientHeight || window.innerHeight || 700;
+    const x = pt ? pt.x : Math.max(88, Math.min(118, w * 0.26));
+    const y = pt ? pt.y : h - Math.max(104, Math.min(132, h * 0.17));
+    // дом — только для «отпущено», при касании ставим точно под палец
+    el.style.left = `${x}px`;
+    el.style.top = `${y}px`;
   }
 
   // ─────────────────────────── движение ───────────────────────────
@@ -80,6 +103,11 @@ export class Sticks {
     const zone = this.root.querySelector('[data-zone="move"]');
     const stick = this.move;
 
+    // Стик — «плавающий»: он появляется под пальцем в любом месте левой
+    // нижней зоны. Раньше он Висел в фиксированной точке (left:26%; bottom:24%)
+    // и показывал именно её, так что касание в двух сантиметрах от кружка
+    // двигало мальчика, а сам кружок не сдвигался — «джойстик не работает».
+    // Теперь на pointerdown кружок переезжает под палец и включается.
     zone.addEventListener('pointerdown', (e) => {
       if (stick.active) return;
       zone.setPointerCapture?.(e.pointerId);
@@ -88,8 +116,7 @@ export class Sticks {
       const y = e.clientY - rect.top;
       stick.down(e.pointerId, x, y);
       this.el.moveStick.classList.add('active');
-      this.el.moveStick.style.left = `${x}px`;
-      this.el.moveStick.style.top = `${y}px`;
+      this.placeStick(x, y);
       this.el.moveKnob.style.transform = 'translate(-50%, -50%)';
       this.wake();
       e.preventDefault();
@@ -99,8 +126,7 @@ export class Sticks {
       if (!stick.active || stick.id !== e.pointerId) return;
       const rect = this.root.getBoundingClientRect();
       stick.move(e.pointerId, e.clientX - rect.left, e.clientY - rect.top);
-      this.el.moveStick.style.left = `${stick.base.x}px`;
-      this.el.moveStick.style.top = `${stick.base.y}px`;
+      this.placeStick(stick.base.x, stick.base.y);
       this.el.moveKnob.style.transform =
         `translate(calc(-50% + ${stick.knob.x}px), calc(-50% + ${stick.knob.y}px))`;
       this.wake();
@@ -112,6 +138,8 @@ export class Sticks {
       stick.up(e.pointerId);
       this.el.moveStick.classList.remove('active');
       this.el.moveKnob.style.transform = 'translate(-50%, -50%)';
+      // отпустили — кружок возвращается на «домашнее» место и тускнеет
+      this.placeStick(null);
     };
     zone.addEventListener('pointerup', end);
     zone.addEventListener('pointercancel', end);

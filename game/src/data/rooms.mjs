@@ -17,16 +17,20 @@ export const ROOM_KIND = {
 
 /** Как комната выглядит: пол, стены, потолок. Используется сборщиком сцены. */
 export const ROOM_LOOK = {
-  basement: { floor: 'floorWood', wall: 'wainscot', ceiling: 'ceiling', trim: 'metalDark' },
-  hall:     { floor: 'floorWood2', wall: 'wallpaper', ceiling: 'ceiling', trim: 'walnut' },
-  living:   { floor: 'floorWood', wall: 'wallpaper', ceiling: 'ceiling', trim: 'walnut' },
-  kitchen:  { floor: 'lino', wall: 'wallpaper2', ceiling: 'ceiling', trim: 'oak' },
-  stairs:   { floor: 'floorWood', wall: 'wallpaper2', ceiling: 'ceiling', trim: 'walnut' },
-  corridor: { floor: 'floorWood2', wall: 'wallpaper', ceiling: 'ceiling', trim: 'walnut' },
-  child:    { floor: 'floorWood', wall: 'wallpaper', ceiling: 'ceiling', trim: 'pine' },
-  parents:  { floor: 'floorWood', wall: 'wallpaper2', ceiling: 'ceiling', trim: 'walnut' },
-  bath:     { floor: 'lino', wall: 'tulle', ceiling: 'ceiling', trim: 'metal' },
-  storage:  { floor: 'floorWood', wall: 'wainscot', ceiling: 'ceiling', trim: 'pine' },
-  attic:    { floor: 'plywood', wall: 'plywood', ceiling: 'walnut', trim: 'walnut' },
+  // floor/wall/ceiling/trim — как было; wainscot и stripe — новая отделка стен.
+  // Раньше стена была одной плоской коробкой, и все комнаты выглядели
+  // одинаково коричневыми. Теперь у каждой свой низ и свои полосы.
+  basement: { floor: 'floorWood', wall: 'wainscot', ceiling: 'ceiling', trim: 'metalDark', wainscot: 'wainscotStone', stripe: 'stripeCool' },
+  hall:     { floor: 'floorWood2', wall: 'wallpaper', ceiling: 'ceiling', trim: 'walnut', wainscot: 'wainscotCream', stripe: 'stripeWarm' },
+  living:   { floor: 'floorWood', wall: 'wallpaper', ceiling: 'ceiling', trim: 'walnut', wainscot: 'wainscotRed', stripe: 'stripeRose' },
+  kitchen:  { floor: 'lino', wall: 'wallpaper2', ceiling: 'ceiling', trim: 'oak', wainscot: 'wainscotCream', stripe: 'stripeWarm' },
+  stairs:   { floor: 'floorWood', wall: 'wallpaper2', ceiling: 'ceiling', trim: 'walnut', wainscot: 'wainscotCream', stripe: 'stripeWarm' },
+  corridor: { floor: 'floorWood2', wall: 'wallpaper', ceiling: 'ceiling', trim: 'walnut', wainscot: 'wainscotCream', stripe: 'stripeWarm' },
+  child:    { floor: 'floorWood', wall: 'wallpaper', ceiling: 'ceiling', trim: 'pine', wainscot: 'wainscotGreen', stripe: 'stripeRose' },
+  parents:  { floor: 'floorWood', wall: 'wallpaper2', ceiling: 'ceiling', trim: 'walnut', wainscot: 'wainscotBlue', stripe: 'stripeCool' },
+  bath:     { floor: 'lino', wall: 'bathWall', ceiling: 'ceiling', trim: 'metal', wainscot: 'wainscotStone', stripe: 'stripeCool' },
+  storage:  { floor: 'floorWood', wall: 'wainscot', ceiling: 'ceiling', trim: 'pine', wainscot: 'wainscotGreen', stripe: 'stripeWarm' },
+  // на чердаке панели нет: там фанера от пола до скатов
+  attic:    { floor: 'plywood', wall: 'plywood', ceiling: 'walnut', trim: 'walnut', wainscot: 'plywood', stripe: 'chipboard', flatWalls: true },
   yard:     { floor: 'asphalt', wall: 'foliage', ceiling: 'nightSky', trim: 'metal' },
 };

@@ -9,7 +9,7 @@ import { LAYOUT } from '../src/data/layout.mjs';
 import { PROPS } from '../src/world/props.mjs';
 import { partsOf } from '../src/world/builder.mjs';
 import { roomById, floors } from '../src/sim/graph.mjs';
-import { ROOMS, HEIGHTS, DOORS, LIGHTS } from '../src/data/house.mjs';
+import { ROOMS, HEIGHTS, DOORS, LIGHTS, WINDOWS } from '../src/data/house.mjs';
 import { Character } from '../src/render/character.mjs';
 import { layoutFits } from '../src/render/house-preview.mjs';
 
@@ -38,6 +38,44 @@ function healthyGeometry(geo, label) {
 // ─────────────────────── оболочка комнат ───────────────────────
 
 let totalTris = 0;
+t('в каждом окне видна ночь, а не дыра в стене', () => {
+  // Окно — единственная «улица» в комнате. Раньше за ним была одна
+  // полупрозрачная плоскость: на экране это читалось как синяя заливка
+  // или чёрный прямоугольник. Теперь за проёмом небо, луна и звёзды.
+  const bad = [];
+  for (const w of WINDOWS) {
+    const room = roomById(w.room);
+    const shell = roomShellParts(room);
+    const mats = new Set(shell.glass.map((g) => g.mat));
+    if (!mats.has('nightSky')) bad.push(`${w.room}: нет неба`);
+    if (!mats.has('moon')) bad.push(`${w.room}: нет луны`);
+    if (!mats.has('star')) bad.push(`${w.room}: нет звёзд`);
+    // небо должно быть ЗА стеной, иначе оно перекроет комнату
+    const sky = shell.glass.find((g) => g.mat === 'nightSky');
+    const wallAt = Math.abs(w.at.z - room.rect.z) < 0.3 ? room.rect.z
+      : Math.abs(w.at.z - (room.rect.z + room.rect.d)) < 0.3 ? room.rect.z + room.rect.d
+      : Math.abs(w.at.x - room.rect.x) < 0.3 ? room.rect.x : room.rect.x + room.rect.w;
+    const skyZ = sky.p[2];
+    const outside = Math.abs(skyZ - wallAt) > 0.1;
+    if (!outside) bad.push(`${w.room}: небо в стене`);
+  }
+  ok(bad.length === 0, bad.join(', '));
+});
+
+t('окно есть в КАЖДОЙ комнате, где оно заявлено', () => {
+  // В спальне родителей у окна указана координата вдоль стены, а не поперёк.
+  // Прежний код искал окно по «z == 0» и молча не ставил его — комната
+  // оставалась вообще без окон.
+  const bad = [];
+  for (const w of WINDOWS) {
+    const shell = roomShellParts(roomById(w.room));
+    const count = Object.values(shell.openings)
+      .flat().filter((o) => o.kind === 'window').length;
+    if (count !== 1) bad.push(`${w.room}: ${count} проёмов-окон`);
+  }
+  ok(bad.length === 0, bad.join(', '));
+});
+
 t('оболочка каждой комнаты собирается и не содержит мусора', () => {
   for (const room of ROOMS) {
     if (room.kind === 'yard') continue;
@@ -54,7 +92,12 @@ t('оболочка каждой комнаты собирается и не с�
       }
     });
     totalTris += tris;
-    ok(tris < 2000, `${room.id}: оболочка ${tris} треугольников — тяжело`);
+    // 2800 на комнату: стена больше не одна коробка — появились панель,
+    // карниз и полосы обоев (это и есть «стена — пятно» → «стена — стена»).
+    // Всё это слито по материалам в 4–5 draw call, поэтому лимит по
+    // треугольникам здесь про GPU, а не про вызовы. Самая тяжёлая — коридор
+    // (12 м стен): 2624.
+    ok(tris < 2800, `${room.id}: оболочка ${tris} треугольников — тяжело`);
     g.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
   }
   console.log(`      оболочка всего дома: ${totalTris} треугольников`);

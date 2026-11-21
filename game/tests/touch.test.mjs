@@ -12,6 +12,7 @@ const errs = [];
 const t = (name, fn) => { try { fn(); pass++; } catch (e) { fail++; errs.push(`${name}\n    ${e.message}`); } };
 const ok = (c, m) => { if (!c) throw new Error(m); };
 const css = readFileSync(new URL('../styles.css', import.meta.url), 'utf8');
+const sticks = readFileSync(new URL('../src/ui/sticks.mjs', import.meta.url), 'utf8');
 
 /** Правило CSS по селектору (последнее вхождение в файле). */
 function rule(sel) {
@@ -34,13 +35,48 @@ t('столбик кнопок не перекрыт зоной свайпа', (
 
 t('кнопки не занимают пол-экрана', () => {
   const r = rule('.act');
-  const w = /width:\s*(\d+)px/.exec(rule('.action-buttons'));
-  ok(w && Number(w[1]) <= 80, `столбик шириной ${w?.[1]} px — слишком широкий`);
+  // ширина столбика живёт в переменной --act-w (медиа-запросы меняют только
+  // её, а не весь блок), поэтому смотрим и на width, и на переменную
+  const widthOf = (text) => {
+    const direct = /width:\s*(\d+)px/.exec(text);
+    if (direct) return Number(direct[1]);
+    const vari = /--act-w:\s*(\d+)px/.exec(text);
+    return vari ? Number(vari[1]) : null;
+  };
+  // последнее правило .controls — из медиа-запроса и несёт только отступы,
+  // поэтому если в блоке нет ширины, ищем переменную по всему файлу
+  const fromVar = /--act-w:\s*(\d+)px/.exec(css);
+  const colW = widthOf(rule('.action-buttons'))
+    ?? widthOf(rule('.controls'))
+    ?? (fromVar ? Number(fromVar[1]) : null);
+  ok(colW !== null && colW <= 80, `столбик шириной ${colW ?? 'неизвестной'} px — слишком широкий`);
   const h = /min-height:\s*(\d+)px/.exec(r);
   ok(h && Number(h[1]) <= 48, `кнопка высотой ${h?.[1]} px — крупнее пальца не нужно`);
   // всего пять кнопок и один «главный» — как задумано
   ok(BUTTONS.length === 5, `кнопок ${BUTTONS.length}, а договаривались о 5`);
   ok(BUTTONS.filter((b) => b.main).length === 1, 'главная кнопка не одна');
+});
+
+t('зона стика лежит ПОВЕРХ зоны свайпа', () => {
+  // Настоящая причина «джойстик не работает»: .look-zone объявлена шириной
+  // 100% и без z-index, а .stick-zone — после неё. Равный z-index → побеждает
+  // тот, кто позже в разметке, и зона свайпа съедала все касания в левом низу.
+  const look = rule('.look-zone');
+  const stick = rule('.stick-zone');
+  const zOf = (t) => { const m = /z-index:\s*(\d+)/.exec(t); return m ? Number(m[1]) : 0; };
+  ok(zOf(stick) > zOf(look), `стик z=${zOf(stick)}, свайп z=${zOf(look)} — касания уйдут в камеру`);
+  // и в разметке зона стика идёт после зоны свайпа
+  const src = sticks;
+  ok(src.indexOf('data-zone="look"') < src.indexOf('data-zone="move"'),
+    'зона стика в разметке раньше зоны свайпа');
+});
+
+t('стик встаёт под палец, а не висит в одной точке', () => {
+  // «Джойстик не работает» — это ещё и про то, что кружок стоял в фиксированной
+  // точке: касание рядом двигало мальчика, а сам кружок не сдвигался.
+  ok(/placeStick\s*\(/.test(sticks), 'нет placeStick — стик не встаёт под палец');
+  const down = sticks.slice(sticks.indexOf("'pointerdown', (e) => {"));
+  ok(down.slice(0, 700).includes('placeStick'), 'на pointerdown стик не переезжает под палец');
 });
 
 t('кнопки появляются на касании и уходят сами', () => {

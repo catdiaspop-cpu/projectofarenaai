@@ -76,61 +76,74 @@ html, body {
   grid-template-columns: auto 1fr auto;
   gap: 10px;
   align-items: center;
-  padding: 0 12px;
+  margin: 0 10px;
+  padding: 6px 10px;
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(14, 19, 26, 0.72), rgba(8, 11, 15, 0.5));
+  border: 1px solid rgba(232, 226, 210, 0.09);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 10px 24px -18px #000;
 }
 
 .hud-clock {
   display: flex;
   flex-direction: column;
   line-height: 1;
+  padding-right: 8px;
+  border-right: 1px solid rgba(232, 226, 210, 0.1);
 }
 .hud-clock span {
   font-family: var(--mono);
-  font-size: 22px;
-  letter-spacing: 0.02em;
+  font-size: 19px;
+  letter-spacing: 0.01em;
   color: var(--amber);
-  text-shadow: 0 0 12px rgba(255, 195, 122, 0.35);
+  text-shadow: 0 0 14px rgba(255, 195, 122, 0.4);
   font-variant-numeric: tabular-nums;
 }
 .hud-clock small {
-  font-size: 10px;
-  letter-spacing: 0.16em;
+  font-size: 9px;
+  letter-spacing: 0.18em;
   text-transform: uppercase;
   color: rgba(232, 226, 210, 0.45);
-  margin-top: 2px;
+  margin-top: 3px;
 }
 
+/* шкалы: тонкая полоска + подпись под ней. Раньше была одна буква справа,
+   и было непонятно, что именно кончается. */
 .hud-scales {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 6px;
+  gap: 8px;
   align-items: end;
 }
 
 .hud-scale {
   position: relative;
   display: flex;
-  align-items: center;
-  gap: 4px;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
 }
 .hud-scale i {
   display: block;
-  flex: 1;
-  height: 5px;
+  height: 4px;
   border-radius: 3px;
   background:
-    linear-gradient(90deg, var(--c) var(--v, 0%), rgba(255,255,255,0.09) var(--v, 0%));
-  box-shadow: 0 0 8px -2px var(--c);
-  transition: --v 220ms ease;
+    linear-gradient(90deg, var(--c) var(--v, 0%), rgba(255,255,255,0.10) var(--v, 0%));
+  box-shadow: 0 0 8px -3px var(--c);
+  transition: background 220ms ease;
 }
 .hud-scale span {
-  font-size: 9px;
-  color: rgba(232, 226, 210, 0.42);
-  width: 10px;
-  text-align: center;
+  font-size: 8.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(232, 226, 210, 0.38);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .hud-scale.danger i {
-  background: linear-gradient(90deg, var(--danger) var(--v, 0%), rgba(255,255,255,0.09) var(--v, 0%));
+  background: linear-gradient(90deg, var(--danger) var(--v, 0%), rgba(255,255,255,0.10) var(--v, 0%));
   animation: pulse-danger 1.1s ease-in-out infinite;
 }
 @keyframes pulse-danger {
@@ -139,22 +152,35 @@ html, body {
 }
 
 .hud-menu {
-  width: 38px; height: 38px;
-  border-radius: 12px;
-  border: 1px solid rgba(232, 226, 210, 0.16);
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  border: 1px solid rgba(232, 226, 210, 0.18);
   background: rgba(10, 14, 19, 0.55);
-  color: rgba(232, 226, 210, 0.7);
-  font-size: 16px;
+  color: rgba(232, 226, 210, 0.72);
+  font-size: 14px;
+  line-height: 1;
   backdrop-filter: blur(6px);
 }
+.hud-menu:active { transform: scale(0.94); }
 
+/* Название комнаты — сверху слева, под панелью времени.
+   Раньше оно висело в левом низу — ровно там, где теперь появляется стик
+   под пальцем. Текст и стик дрались за одно место. */
 .hud-room {
-  padding: 0 16px;
-  margin-top: calc(24vh + var(--safe-t));
+  position: absolute;
+  top: calc(58px + var(--safe-t));
+  left: 18px;
+  right: 18px;
+  pointer-events: none;
+  animation: room-fade 1s 3.6s ease forwards;
+}
+@keyframes room-fade {
+  from { opacity: 1; }
+  to { opacity: 0.34; }
 }
 .hud-room h1 {
   margin: 0;
-  font-size: 26px;
+  font-size: 22px;
   font-weight: 600;
   letter-spacing: -0.01em;
   color: rgba(255, 233, 200, 0.92);
@@ -163,8 +189,8 @@ html, body {
   animation: title-in 900ms 200ms ease forwards;
 }
 .hud-room p {
-  margin: 4px 0 0;
-  font-size: 13px;
+  margin: 3px 0 0;
+  font-size: 12px;
   color: rgba(232, 226, 210, 0.55);
   text-shadow: 0 1px 10px rgba(0, 0, 0, 0.9);
   opacity: 0.001;
@@ -260,7 +286,6 @@ html, body {
 }
 
 @media (min-width: 720px) {
-  .hud-room { margin-top: 18vh; }
   .hud-buttons { grid-template-columns: 1fr 1fr 1fr; }
 }
 
@@ -273,9 +298,25 @@ html, body {
   inset: 0;
   pointer-events: none;
   z-index: 6;
+  /* размеры столбика кнопок — в переменных, чтобы медиа-запросы меняли только
+     их, а не переопределяли весь блок (иначе тест «кнопки не на пол-экрана»
+     читает последнее правило и не находит ширину) */
+  --act-w: 62px;
+  --act-bottom: 26px + env(safe-area-inset-bottom, 0px);
+  --act-right: 12px + env(safe-area-inset-right, 0px);
 }
 
-/* ── зоны захвата: нижние половины, палец не обязан попадать в кружок ── */
+/* ── зоны захвата ─────────────────────────────────────────────────────────
+   Слои решают всё. Зона свайпа — на весь экран, зона стика — поверх неё в
+   левом низу, кнопки — поверх обеих у правого края.
+
+   Ошибка, из-за которой «джойстик не работает»: .look-zone шириной 100%
+   объявлена ПОСЛЕ .stick-zone и без z-index. При равном z-index побеждает
+   тот, кто позже в разметке, — зона свайпа лежала сверху и забирала все
+   касания в левом низу. Стик двигал мальчика только когда палец попадал
+   в 46% слева, но даже там события уходили в камеру. Теперь у каждой зоны
+   свой слой, и приоритет не зависит от порядка в файле.
+   ─────────────────────────────────────────────────────────────────────── */
 .stick-zone,
 .look-zone {
   position: absolute;
@@ -284,14 +325,11 @@ html, body {
   pointer-events: auto;
   touch-action: none;
 }
-/* стик — нижний левый угол (под левый большой палец) */
-.stick-zone { left: 0; width: 46%; }
-/* свайп камеры — вся оставшаяся площадь: можно вести взгляд и одновременно
-   держать стик другой рукой. Раньше было строго 50/50, и левая рука
-   не могла повернуть камеру вообще. */
-.look-zone { left: 0; right: 0; width: 100%; }
-/* Столбик кнопок лежит ВЫШЕ зоны свайпа. Иначе касание кнопки уходило бы
-   в look-zone: камера крутится, а кнопка не нажимается. */
+/* свайп камеры — весь экран, самый нижний слой */
+.look-zone { left: 0; right: 0; width: 100%; z-index: 1; }
+/* стик — нижний левый угол, ПОВЕРХ свайпа */
+.stick-zone { left: 0; width: 46%; z-index: 3; }
+/* кнопки — выше всех зон, иначе касание кнопки крутит камеру */
 .action-buttons { z-index: 4; }
 .stick { z-index: 5; }
 
@@ -301,48 +339,50 @@ html, body {
   width: 0; height: 0;
   left: 0; top: 0;
   pointer-events: none;
-  opacity: 0.34;
-  transition: opacity 140ms ease;
+  opacity: 0;
+  transition: opacity 160ms ease;
 }
-.stick-move { left: 26%; bottom: 24%; }
-/* ВАЖНО: у .stick заданы left:0 top:0, а .stick-move добавляет bottom.
-   В абсолютном позиционировании top:0 сильнее bottom, поэтому стик
-   улетал в ЛЕВЫЙ ВЕРХНИЙ угол экрана — «джойстик сверху». Здесь top снят. */
-.stick-move { top: auto; }
 .stick.active { opacity: 1; }
+/* .stick-move — именно стик движения. Домашнюю позицию (левый низ, под
+   большим пальцем) задаёт placeStick() в пикселях от размера экрана:
+   проценты давали 99 px от края на узком телефоне, и кружок половиной
+   уезжал под палец, который держит телефон. */
+.stick-move { left: 26%; bottom: 22%; top: auto; }
 
 .stick-base {
   position: absolute;
-  width: 132px; height: 132px;
+  width: 128px; height: 128px;
   left: 0; top: 0;
   transform: translate(-50%, -50%);
   border-radius: 50%;
-  border: 1.5px solid rgba(255, 214, 160, 0.26);
-  background: radial-gradient(circle at 50% 50%, rgba(255,200,140,0.09), rgba(10,14,19,0.22) 70%);
-  box-shadow: inset 0 0 20px rgba(255, 190, 120, 0.09);
+  border: 1px solid rgba(255, 214, 160, 0.22);
+  background:
+    radial-gradient(circle at 50% 50%, rgba(255, 200, 140, 0.08), rgba(8, 11, 15, 0.34) 72%);
+  box-shadow: inset 0 0 24px rgba(255, 190, 120, 0.07);
 }
 
 .stick-knob {
   position: absolute;
-  width: 56px; height: 56px;
+  width: 58px; height: 58px;
   left: 0; top: 0;
   transform: translate(-50%, -50%);
   border-radius: 50%;
-  border: 1.5px solid rgba(255, 220, 170, 0.5);
-  background: radial-gradient(circle at 38% 32%, rgba(255,228,190,0.8), rgba(150,104,54,0.7) 60%, rgba(60,40,22,0.82));
-  box-shadow: 0 3px 14px rgba(0,0,0,0.5), 0 0 16px -5px rgba(255,190,120,0.45);
+  border: 1px solid rgba(255, 226, 184, 0.55);
+  background:
+    radial-gradient(circle at 38% 30%, rgba(255, 236, 206, 0.9), rgba(168, 118, 62, 0.85) 58%, rgba(52, 34, 18, 0.9));
+  box-shadow: 0 4px 16px rgba(0,0,0,0.55), 0 0 20px -6px rgba(255,190,120,0.5);
   will-change: transform;
 }
 
 /* ── кнопки: узкий столбик у правого края, появляются по касанию ── */
 .action-buttons {
   position: absolute;
-  right: calc(10px + env(safe-area-inset-right, 0px));
-  bottom: calc(104px + env(safe-area-inset-bottom, 0px));
+  right: calc(var(--act-right));
+  bottom: calc(var(--act-bottom));
   display: flex;
-  flex-direction: column;
-  gap: 6px;
-  width: 68px;
+  flex-direction: column-reverse;
+  gap: 7px;
+  width: var(--act-w);
   pointer-events: auto;
   opacity: 0;
   transform: translateX(14px);
@@ -356,18 +396,29 @@ html, body {
 .action-buttons:not(.visible) { pointer-events: none; }
 
 .act {
-  min-height: 42px;
-  padding: 4px 3px;
-  border-radius: 13px;
-  border: 1px solid rgba(232, 226, 210, 0.14);
-  background: linear-gradient(180deg, rgba(24, 32, 44, 0.86), rgba(10, 14, 19, 0.9));
-  color: rgba(255, 236, 208, 0.82);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: 46px;
+  padding: 5px 3px;
+  border-radius: 15px;
+  border: 1px solid rgba(232, 226, 210, 0.13);
+  background: linear-gradient(180deg, rgba(24, 32, 44, 0.8), rgba(10, 14, 19, 0.86));
+  color: rgba(255, 236, 208, 0.84);
   font-family: var(--font);
-  font-size: 10.5px;
+  font-size: 9.5px;
   line-height: 1.1;
-  letter-spacing: 0.01em;
+  letter-spacing: 0.02em;
   backdrop-filter: blur(10px);
   transition: transform 90ms ease, border-color 140ms ease, background 140ms ease;
+}
+.act i {
+  font-style: normal;
+  font-size: 15px;
+  line-height: 1;
+  opacity: 0.85;
 }
 .act:active { transform: scale(0.94); }
 .act.on {
@@ -378,8 +429,9 @@ html, body {
 
 /* главная кнопка — единственная крупная */
 .act-main {
-  min-height: 56px;
-  font-size: 12px;
+  min-height: 60px;
+  font-size: 10.5px;
+  order: -1;
   border-color: rgba(255, 195, 122, 0.38);
   background: linear-gradient(180deg, rgba(78, 54, 28, 0.9), rgba(30, 22, 14, 0.94));
   box-shadow: inset 0 1px 0 rgba(255, 220, 170, 0.18), 0 6px 18px -12px rgba(255, 180, 90, 0.8);
@@ -400,13 +452,18 @@ html, body {
 }
 
 /* в 3D название комнаты не должно лезть в центр кадра */
-.app[data-mode="3d"] .hud-room { margin-top: calc(15vh + var(--safe-t)); }
-.app[data-mode="3d"] .hud-room h1 { font-size: 20px; }
+.app[data-mode="3d"] .hud-room { margin-top: 0; }
+.app[data-mode="3d"] .hud-room h1 { font-size: 17px; }
+.app[data-mode="3d"] .hud-room p { font-size: 11px; }
 
 @media (max-height: 620px) {
   .stick-base { width: 112px; height: 112px; }
-  .stick-knob { width: 48px; height: 48px; }
-  .act { min-height: 40px; font-size: 10px; }
+  .stick-knob { width: 50px; height: 50px; }
+  .act { min-height: 42px; font-size: 9px; }
   .act-main { min-height: 54px; }
-  .action-buttons { width: 68px; bottom: calc(80px + env(safe-area-inset-bottom, 0px)); }
+  .controls { --act-w: 58px; --act-bottom: 20px + env(safe-area-inset-bottom, 0px); }
+}
+/* на широком экране (планшет, десктоп) столбик не прилипает к краю */
+@media (min-width: 720px) {
+  .controls { --act-right: 22px + env(safe-area-inset-right, 0px); --act-bottom: 34px + env(safe-area-inset-bottom, 0px); }
 }
