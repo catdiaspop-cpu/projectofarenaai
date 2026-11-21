@@ -222,17 +222,6 @@ function charState() {
 
 // ─────────────────────────── запуск ───────────────────────────
 
-// ─────────────────────────── офлайн ───────────────────────────
-// Регистрируем только на опубликованном сайте: при локальной разработке
-// кэш service worker'а мешает видеть правки.
-if ('serviceWorker' in navigator && location.protocol.startsWith('http') && !location.hostname.match(/^(localhost|127\.0\.0\.1|0\.0\.0\.0)$/)) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register(new URL('../sw.js', import.meta.url)).catch(() => {
-      /* офлайн необязателен */
-    });
-  });
-}
-
 startBtn.addEventListener('click', () => {
   boot.classList.add('hidden');
   running = true;
@@ -261,6 +250,17 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden) { paused = true; lastT = performance.now(); }
   else { paused = false; lastT = performance.now(); }
 });
+
+// ─────────────────────────── офлайн ───────────────────────────
+// Регистрируем только на опубликованном сайте: при локальной разработке
+// кэш service worker'а мешает видеть правки.
+if ('serviceWorker' in navigator && location.protocol.startsWith('http') && !location.hostname.match(/^(localhost|127\.0\.0\.1|0\.0\.0\.0)$/)) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register(new URL("../sw.js", import.meta.url)).catch(() => {
+      /* офлайн необязателен: игра работает и без него */
+    });
+  });
+}
 
 // стартовый кадр карты, пока идёт заставка
 preview.resize();
