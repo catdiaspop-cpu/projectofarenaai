@@ -34,11 +34,24 @@ t('фонарь включается сам при старте 3D (та сам�
   ok(/setTorch\(on, power = 1\)/.test(s), 'метода setTorch нет');
 });
 
-t('камера от третьего лица, а не в голове мальчика', () => {
+t('камера в голове мальчика и едет вместе с ним', () => {
   const s = read('src/render/scene3d.mjs');
-  ok(s.includes('camDist'), 'нет дистанции камеры');
-  ok(s.includes('camera.lookAt('), 'камера не смотрит на цель');
-  ok(!/camHeight \+ bob,\s*\n\s*ch\.root\.position\.z \+ Math\.cos/.test(s), 'осталась камера от первого лица');
+  // Вид только от первого лица — третье лицо отвергнуто.
+  ok(!s.includes('camDist'), 'вернулась камера за спиной (camDist)');
+  ok(!s.includes('camera.lookAt('), 'камера смотрит на мальчика со стороны');
+  // Глаза обязаны следовать за телом: иначе первый кадр из одной точки,
+  // а тело уходит — это и есть телепортация.
+  const sc = s.slice(s.indexOf('setCharacter('), s.indexOf('setCharacter(') + 900);
+  ok(/this\.eye\.set\(lx, this\.eyeBase, lz\)/.test(sc), 'глаза не ставятся по позиции мальчика');
+  const rd = s.slice(s.indexOf('render(dt)'));
+  ok(/this\.camera\.position\.set\(\s*this\.eye\.x/.test(rd), 'камера не берёт позицию глаз');
+});
+
+t('покачивание камеры привязано к пройденным метрам, а не ко времени', () => {
+  const s = read('src/render/scene3d.mjs');
+  ok(/this\.phase \+= d \//.test(s), 'фаза камеры не идёт по метрам');
+  ok(s.includes('bobCycle(this.phase)'), 'покачивание не из походки');
+  ok(!/this\.t \* [0-9.]+ \* FP\.bobAmp/.test(s), 'покачивание осталось по времени');
 });
 
 t('ночной свет не чёрный', () => {

@@ -156,12 +156,17 @@ t('мальчик собирается: все части, все материа
 t('анимация двигает части, а не всё сразу', () => {
   const ch = new Character();
   ch.setState('walk');
-  const before = ch.legL.rotation.x;
-  for (let i = 0; i < 20; i++) ch.update(1 / 60);
-  const after = ch.legL.rotation.x;
+  const before = ch.legL.U.rotation.x;
+  for (let i = 0; i < 20; i++) {
+    ch.setMotion(0.95 / 60, 'walk');   // идём 0.95 м/с
+    ch.update(1 / 60);
+  }
+  const after = ch.legL.U.rotation.x;
   ok(Math.abs(after - before) > 0.001, 'нога не двигается при ходьбе');
   ok(Number.isFinite(ch.root.rotation.y), 'поворот в NaN');
   ok(Number.isFinite(ch.pelvis.position.y), 'высота в NaN');
+  // суставы: колено и локоть тоже живые — иначе походка «на палках»
+  ok(ch.legL.F && ch.armL.F, 'нет суставов колена и локтя');
 });
 
 t('шаг даёт событие (на него вешается звук)', () => {
@@ -169,7 +174,10 @@ t('шаг даёт событие (на него вешается звук)', ()
   ch.setState('walk');
   let steps = 0;
   ch.onFootfall = () => steps++;
-  for (let i = 0; i < 240; i++) ch.update(1 / 60);
+  for (let i = 0; i < 240; i++) {
+    ch.setMotion(0.95 / 60, 'walk');   // 4 секунды реальной ходьбы
+    ch.update(1 / 60);
+  }
   ok(steps >= 3, `за 4 секунды ходьбы только ${steps} шагов`);
 });
 

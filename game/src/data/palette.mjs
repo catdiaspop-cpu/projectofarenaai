@@ -20,6 +20,13 @@ export const PALETTE = {
   plywood:     0xb08a5c,
   chipboard:   0x8a7250,
 
+  // двери и наличники
+  door:        0x6b4527,  // створка: тёплое дерево
+  doorPanel:   0x7a5230,  // филёнка чуть светлее
+  doorDark:    0x4e3219,  // торец и низ
+  trim:        0xd8d0c0,  // наличник, плинтус, косяк
+  doorHandle:  0xb99a5c,  // латунная ручка
+
   // ткань и мягкое
   sheet:       0xd6cdbb,
   sheet2:      0xc4b9a4,

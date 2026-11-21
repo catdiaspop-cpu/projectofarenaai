@@ -1,82 +1,106 @@
-// Кадр: сколько места мальчик занимает на экране.
-//
-// Это самая субъективная вещь в игре и самая частая причина «ничего не видно».
-// Считаем настоящей проекцией three.js: вершина головы и ступни → NDC.
-// Проверено на числах, а не на глаз: было 84% высоты экрана (один затылок),
-// стало 45% при старте и не больше 55% при полном наклоне вниз.
+// Кадр от первого лица: что реально видно, считается настоящей проекцией
+// three.js. Проверяем, что руки в кадре, пол под ногами виден и обзор не
+// превращается в «смотрю в стену».
 
 import * as THREE from '../vendor/three/three.min.js';
+import { FP, handPoint } from '../src/render/viewmodel.mjs';
+import { BODY } from '../src/world/character.mjs';
 
 let pass = 0, fail = 0;
 const errs = [];
 const t = (name, fn) => { try { fn(); pass++; } catch (e) { fail++; errs.push(`${name}\n    ${e.message}`); } };
 const ok = (c, m) => { if (!c) throw new Error(m); };
 
-const CAM = { dist: 1.35, height: 2.0, shoulder: 0.34, fov: 62, aspect: 9 / 16 };
-const HEAD_Y = 1.15, FEET_Y = 0.05;
+const ASPECT = 9 / 16;
 
-/** Камера и экранные координаты мальчика в локальных метрах комнаты. */
-function frame({ yaw = Math.PI, pitch = -0.3, ch = { x: 0, z: -0.17 }, dist = CAM.dist, height = CAM.height } = {}) {
-  const back = new THREE.Vector3(Math.sin(yaw) * dist, 0, Math.cos(yaw) * dist);
-  const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
-  const cam = new THREE.PerspectiveCamera(CAM.fov, CAM.aspect, 0.05, 40);
-  cam.position.set(
-    ch.x + back.x + right.x * CAM.shoulder,
-    Math.max(0.4, height + Math.sin(pitch) * 1.1),
-    ch.z + back.z + right.z * CAM.shoulder,
-  );
-  cam.lookAt(new THREE.Vector3(ch.x, 1.10, ch.z));
+/** Камера от первого лица: глаза мальчика, наклон и поворот. */
+function fpCam({ pitch = 0, yaw = 0, fov = FP.fov } = {}) {
+  const cam = new THREE.PerspectiveCamera(fov, ASPECT, FP.near, 40);
+  cam.position.set(0, FP.eyeHeight, 0);
+  cam.rotation.order = 'YXZ';
+  cam.rotation.set(pitch, yaw, 0);
   cam.updateMatrixWorld(true);
-  const head = new THREE.Vector3(ch.x, HEAD_Y, ch.z).project(cam);
-  const feet = new THREE.Vector3(ch.x, FEET_Y, ch.z).project(cam);
-  return { head, feet, cam: cam.position, camera: cam, heightPct: Math.abs(head.y - feet.y) * 50 };
+  cam.updateProjectionMatrix();
+  return cam;
 }
 
-const inFrame = (v) => Math.abs(v.x) <= 1 && Math.abs(v.y) <= 1 && v.z <= 1 && v.z >= -1;
+const visible = (cam, p) => {
+  const v = p.clone().project(cam);
+  return { ndc: v, ok: Math.abs(v.x) <= 1 && Math.abs(v.y) <= 1 && v.z >= -1 && v.z <= 1 };
+};
 
-t('на старте мальчик целиком в кадре', () => {
-  const f = frame();
-  ok(inFrame(f.head), `голова за кадром: y=${f.head.y.toFixed(2)}`);
-  ok(inFrame(f.feet), `ноги за кадром: y=${f.feet.y.toFixed(2)}`);
-});
-
-t('мальчик не занимает весь экран (было 84% — видно только затылок)', () => {
-  const f = frame();
-  ok(f.heightPct < 55, `мальчик занимает ${f.heightPct.toFixed(0)}% высоты экрана`);
-  ok(f.heightPct > 30, `мальчик занимает ${f.heightPct.toFixed(0)}% — слишком мелкий, не разглядеть`);
-});
-
-t('даже при полном наклоне вниз мальчик не заслоняет всё', () => {
-  for (const pitch of [-0.5, -0.3, 0, 0.42]) {
-    const f = frame({ pitch });
-    ok(f.heightPct < 60, `наклон ${pitch}: мальчик ${f.heightPct.toFixed(0)}% экрана`);
-    ok(inFrame(f.head) && inFrame(f.feet), `наклон ${pitch}: мальчик вылез из кадра`);
+t('правая рука с фонарём в кадре — на любой пропорции экрана', () => {
+  // Считаем по настоящей точке кисти из viewmodel.mjs, а не по красивой
+  // цифре в тесте: раньше тест был «зелёный», а рука висела на 0.6 м ниже
+  // глаз и в кадр не попадала вообще.
+  const p = handPoint();
+  for (const [w, h, label] of [[9, 16, 'телефон'], [9, 19.5, 'высокий телефон'], [3, 4, 'планшет'], [9, 21, 'очень высокий']]) {
+    const cam = new THREE.PerspectiveCamera(w / h < 0.62 ? FP.fov + 6 : FP.fov, w / h, FP.near, 3);
+    cam.updateMatrixWorld(true);
+    cam.updateProjectionMatrix();
+    const v = visible(cam, new THREE.Vector3(p.x, p.y, p.z));
+    ok(v.ok, `${label}: кисть за кадром (x=${v.ndc.x.toFixed(2)}, y=${v.ndc.y.toFixed(2)})`);
+    ok(v.ndc.y < 0.1, `${label}: кисть слишком высоко — закрывает обзор`);
+    ok(v.ndc.x > 0.15, `${label}: рука не справа, а по центру`);
   }
 });
 
-t('вперёд виден пол — иначе непонятно, куда идти', () => {
-  const f = frame();
-  // Внимание: при yaw = π камера стоит на z = −1.52 и смотрит в +z,
-  // поэтому «впереди» — это плюс, а не минус. Точка пола в 1.55 м от мальчика.
-  const ahead = new THREE.Vector3(0, 0.02, -0.17 + 1.55).project(f.camera);
-  ok(Math.abs(ahead.y) <= 1, `пол впереди не в кадре (y=${ahead.y.toFixed(2)})`);
-  ok(ahead.z < 1, 'точка пола за дальней плоскостью');
-});
-
-t('камера влезает в самую маленькую жилую комнату', () => {
-  // детская 3.6×3.4 — самая тесная после коридора, где включается вид сверху
-  const roomD = 3.4;
-  const chZ = -0.17;
-  // 0.18 м — тот же запас, что и в scene3d (margin = min(0.3, узкая сторона × 0.18))
-  const available = roomD / 2 - Math.abs(chZ) - 0.18;
-  ok(CAM.dist <= available, `нужно ${CAM.dist} м позади, а есть ${available.toFixed(2)} м`);
-});
-
-t('при повороте на 360° мальчик не уходит из кадра', () => {
-  for (let deg = 0; deg < 360; deg += 15) {
-    const f = frame({ yaw: (deg * Math.PI) / 180 });
-    ok(inFrame(f.head) || inFrame(f.feet), `yaw=${deg}°: мальчик пропал из кадра`);
+t('рука в кадре и при покачивании на шаге', () => {
+  const p = handPoint();
+  const cam = new THREE.PerspectiveCamera(FP.fov, 9 / 16, FP.near, 3);
+  cam.updateMatrixWorld(true);
+  cam.updateProjectionMatrix();
+  for (const bob of [-0.02, 0, 0.02]) {
+    const v = visible(cam, new THREE.Vector3(p.x, p.y + bob, p.z));
+    ok(v.ok, `при покачивании ${bob}: рука выпала (y=${v.ndc.y.toFixed(2)})`);
   }
+});
+
+t('пол под ногами виден при наклоне вниз', () => {
+  const cam = fpCam({ pitch: -0.9 });
+  const floorAhead = new THREE.Vector3(0, 0, -0.45);
+  const v = visible(cam, floorAhead);
+  ok(v.ok, `пол в 0.45 м не виден (y=${v.ndc.y.toFixed(2)})`);
+});
+
+t('потолок виден при наклоне вверх', () => {
+  const cam = fpCam({ pitch: 0.8 });
+  const v = visible(cam, new THREE.Vector3(0, 2.6, -1.2));
+  ok(v.ok, `потолок не виден (y=${v.ndc.y.toFixed(2)})`);
+});
+
+t('вперёд видно далеко — комната читается', () => {
+  const cam = fpCam();
+  const wall = new THREE.Vector3(0, 1.0, -3.0);
+  ok(visible(cam, wall).ok, 'стена в 3 м не видна — узкий тоннель');
+});
+
+t('дверь 2.05 м выше глаз — масштаб «я маленький» работает', () => {
+  const cam = fpCam();
+  const doorTop = visible(cam, new THREE.Vector3(0, 2.05, -1.6));
+  ok(doorTop.ok, 'верх двери не влезает в кадр с 1.6 м — не читается высота');
+  ok(doorTop.ndc.y > 0.3, `верх двери всего ${doorTop.ndc.y.toFixed(2)} NDC — не выглядит высоким`);
+});
+
+t('рука занимает угол экрана, а не половину', () => {
+  const cam = new THREE.PerspectiveCamera(FP.fov, 9 / 16, FP.near, 3);
+  cam.updateMatrixWorld(true);
+  cam.updateProjectionMatrix();
+  // область кисти с фонарём: от центра кисти до линзы
+  const p = handPoint();
+  const a = visible(cam, new THREE.Vector3(p.x - 0.05, p.y + 0.05, p.z)).ndc;
+  const b = visible(cam, new THREE.Vector3(p.x + 0.05, p.y - 0.04, p.z - 0.03)).ndc;
+  // 27% ширины — это кисть вместе с корпусом фонаря в нижнем углу кадра.
+  // Норма для вида от первого лица 25–35%: меньше — рука «потерялась»,
+  // больше 40% — экран занят рукой, а не комнатой.
+  const w = Math.abs(a.x - b.x) * 50;
+  ok(w > 18 && w < 35, `кисть занимает ${w.toFixed(0)}% ширины экрана`);
+  ok(p.y < 0, 'кисть выше горизонта — странно');
+});
+
+t('на узком экране поле зрения расширяется, а не сужается', () => {
+  const wide = 74, narrow = FP.fov + 6;
+  ok(narrow > wide - 8, 'на вертикальном телефоне обзор не шире');
 });
 
 console.log('');

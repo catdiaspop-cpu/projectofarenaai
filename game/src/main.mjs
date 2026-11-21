@@ -12,8 +12,9 @@ import { HousePreview } from './render/house-preview.mjs';
 import { roomById, SPEED } from './sim/graph.mjs';
 import { DOORS } from './data/house.mjs';
 import { canOpen, doorsOf, otherSide } from './sim/locks.mjs';
-import { moveMode, cameraDelta } from './core/joystick.mjs';
-import { dirFromStick, step } from './core/movement.mjs';
+import { moveMode } from './core/joystick.mjs';
+import { dirFromStick, step, crossedThreshold } from './core/movement.mjs';
+import { doorOpening, entryPoint } from './sim/doors.mjs';
 import { PROPS } from './world/props.mjs';
 
 const app = document.getElementById('app');
@@ -35,6 +36,7 @@ let torchOn = false;
 let crouch = false;
 let paused = false;
 let sceneLoading = false;
+let pendingDoor = null;      // { door, target, opening, opened } — дверь открыта, ждём шага
 
 // ─────────────────────────── сцены ───────────────────────────
 
@@ -69,6 +71,7 @@ function show3d() {
     scene3d.setCharacter(world.pos.x, world.pos.z, world.facing, 'idle', 'flashlight');
     scene3d.faceIntoRoom();
     mode = '3d';
+    currentOpenings();      // одиночные двери открыты сразу
     app.dataset.mode = '3d';
     sticks?.setTorch(true);
     hud?.toast('фонарь в руке. иди.', 2600);
@@ -95,12 +98,19 @@ hud = new Hud(hudRoot, {
 // ─────────────────────────── стики ───────────────────────────
 
 sticks = new Sticks(document.getElementById('controls'), {
+  // короткое касание справа без сдвига — «слушать»: второе действие под палец
+  onTap: () => {
+    world.listening = !world.listening;
+    sticks.toggleClass('listen', 'on');
+    hud.toast(world.listening ? 'слушаешь…' : 'перестал слушать', 1500);
+  },
   onButton: (act) => {
     switch (act) {
       case 'torch':
         torchOn = !torchOn;
         scene3d?.setTorch(torchOn);
         sticks.setTorch(torchOn);
+        sticks.setAction(null);
         hud.toast(torchOn ? 'фонарь. тебя видно.' : 'темно. зато не видно.', 1800);
         break;
       case 'crouch':
@@ -142,6 +152,28 @@ function nearDoor(reach = 0.95) {
   return best;
 }
 
+/**
+ * Проёмы текущей комнаты: в них можно войти и сквозь них пройти.
+ *
+ * Здесь же решается, какие створки открыты. Правило простое: дверь открыта,
+ * если игрок сам её открыл или если она единственная в комнате (иначе в
+ * коридоре шириной 1.5 м упираешься в стену и «действие» — единственный
+ * способ выйти — теряется под пальцем).
+ */
+function currentOpenings() {
+  const room = world.roomData;
+  const mine = DOORS.filter((d) => d.a === world.room || d.b === world.room);
+  const out = [];
+  for (const d of mine) {
+    const op = doorOpening(d, room);
+    if (!op) continue;
+    // одна дверь в комнате — держим открытой
+    if (mine.length === 1 && !d.stairs) scene3d?.openDoor(d.id);
+    out.push(op);
+  }
+  return out;
+}
+
 /** Контекст для замков: что у мальчика есть прямо сейчас. */
 function lockCtx() {
   return {
@@ -165,8 +197,8 @@ function nearestItem() {
 }
 
 function useNearby() {
-  // сначала дверь: если стоим у двери, «действие» = войти
-  if (nearDoor(0.95)) { tryDoor(); return; }
+  // сначала дверь: если стоим у двери, «действие» = открыть и войти
+  if (nearDoor(1.25)) { tryDoor(); return; }
 
   const it = nearestItem();
   if (!it) {
@@ -180,75 +212,169 @@ function useNearby() {
 
 // ─────────────────────────── движение ───────────────────────────
 
-/** Двигает мальчика по стику внутри комнаты, обходя мебель. */
+/**
+ * Двигает мальчика по стику. Камера — свайпом, поэтому здесь только шаг.
+ * Возвращает пройденное расстояние: по нему считается фаза походки,
+ * и ноги не могут разойтись с движением.
+ */
 function applyMovement(dt) {
-  if (!sticks) return;
-  const st = moveMode(sticks.move, { forceSprint: sticks.sprint, crouching: crouch });
+  if (!sticks) return 0;
 
-  // камера
-  const cd = cameraDelta(sticks.look, dt);
-  if (Math.abs(cd.yaw) > 1e-5 || Math.abs(cd.pitch) > 1e-5) {
-    scene3d?.rotate(cd.yaw, cd.pitch);
-  }
+  // ── камера: свайп, накопленный за кадр
+  const look = sticks.takeLook();
+  if (look.yaw || look.pitch) scene3d?.rotate(look.yaw, look.pitch);
 
+  // бег — полный наклон стика (кнопки «бежать» больше нет: она путала)
+  const sprinting = sticks.move.sprinting;
+  const st = moveMode(sticks.move, { forceSprint: sprinting, crouching: crouch });
   if (st.state === 'idle') {
     world.mode = 'idle';
     world.moving = false;
-    world.path = null;
-    return;
+    return 0;
   }
 
-  // скорость: крадусь — SPEED.sneak, шаг — SPEED.normal, бег — SPEED.run.
-  // Бег только по кнопке: иначе на телефоне мальчик случайно переходит на бег
-  // от полного наклона стика и вся задумка «тихо» ломается.
   const mag = Math.min(1, Math.hypot(sticks.move.value.x, sticks.move.value.y));
   const speed = crouch
     ? SPEED.sneak
-    : sticks.sprint
+    : sprinting
       ? SPEED.run
       : SPEED.sneak + (SPEED.normal - SPEED.sneak) * Math.min(1, mag * 1.35);
 
-  // Стик вверх = вперёд ОТНОСИТЕЛЬНО КАМЕРЫ (оси из матрицы three.js).
   const dir = dirFromStick(sticks.move.value.x, sticks.move.value.y, scene3d?.yaw ?? 0);
-  if (!dir.x && !dir.z) return;
+  if (!dir.x && !dir.z) return 0;
 
-  // шаг с обходом мебели: считается в movement.mjs, проверяется на 600 кадрах
   const room = world.roomData;
-  const res = step(world.pos, dir, speed, dt, room.rect, world.obstacles());
+  // Проёмы дверей — не стены: в них можно войти и сквозь них выйти.
+  const openings = currentOpenings();
+  const res = step(world.pos, dir, speed, dt, room.rect, world.obstacles(), openings);
+  // Считаем сдвиг ДО того, как перезапишем позицию: иначе «куда он сдвинулся»
+  // всегда ноль, и мальчик не поворачивается при ходьбе вообще.
+  const dx = res.pos.x - world.pos.x;
+  const dz = res.pos.z - world.pos.z;
+  const travelled = Math.hypot(dx, dz);
   world.pos = res.pos;
   world.bumped = res.blocked;
 
-  world.facing = Math.atan2(dir.x, dir.z);
-  world.mode = crouch ? 'sneak' : sticks.sprint ? 'run' : 'walk';
-  world.moving = true;
+  // Мальчик смотрит туда, куда реально сдвинулся: если упёрлись в стену и
+  // скользим вдоль неё — он смотрит вдоль стены, а не в стену.
+  if (travelled > 1e-5) world.facing = Math.atan2(dx, dz);
+  world.mode = crouch ? 'sneak' : sprinting ? 'run' : 'walk';
+  world.moving = travelled > 0.0001;
+
+  // ── пересёк порог? тогда и только тогда меняем комнату ──
+  // Работает и для двери, открытой кнопкой, и для комнаты с единственной
+  // дверью (там створка открыта всегда): новый этаж не появляется, пока
+  // мальчик физически не вышел за линию стены.
+  if (pendingDoor) {
+    if (crossedThreshold(world.pos, room.rect, [pendingDoor.opening])) finishDoor();
+  } else {
+    const crossed = crossingDoor(world.pos, room);
+    if (crossed) {
+      pendingDoor = crossed;
+      finishDoor();
+    }
+  }
+  return travelled;
+}
+
+/**
+ * Какую дверь мальчик пересёк, не открывая её кнопкой.
+ *
+ * Нужно для комнат с одной дверью: там створка открыта всегда (иначе в
+ * коридоре 1.5 м шириной некуда деть «действие»). Считаем по настоящей
+ * полосе порога из movement.mjs — той же, что и столкновения, а не по
+ * второй, «похожей» формуле: две похожие формулы и есть источник ошибок.
+ */
+function crossingDoor(pos, room) {
+  for (const d of doorsOf(world.room)) {
+    const op = doorOpening(d, room);
+    if (!op || op.stairs) continue;
+    if (!crossedThreshold(pos, room.rect, [op])) continue;
+    const target = otherSide(d, room);
+    if (!target) continue;
+    return { door: d, target, opening: op, openedAt: 0 };
+  }
+  return null;
 }
 
 // ─────────────────────────── дверь ───────────────────────────
 
 /**
- * Переход в другую комнату: если мальчик стоит у двери — идём в соседнюю.
- * Двери берём из данных дома, а не списком в коде.
+ * Дверь открывается, а не телепортирует.
+ *
+ * Порядок: нажали «действие» у двери → створка поворачивается на петле за
+ * 0.55 с → мальчик сам проходит в проём → когда он пересёк порог, комната
+ * меняется, и он появляется у ТОЙ ЖЕ двери с другой стороны.
+ *
+ * Раньше позиция переставлялась мгновенно, а 3D грузилось асинхронно:
+ * один-два кадра мальчик рисовался в старой комнате с координатами новой —
+ * отсюда «застрял в стене».
  */
-function tryDoor(reach = 0.95) {
+function tryDoor(reach = 1.25) {
+  if (pendingDoor) return;
   const near = nearDoor(reach);
   if (!near) {
     hud.toast('надо подойти к двери.', 1600);
     return;
   }
   const { door, target } = near;
-  // Замок открывается тем, что у мальчика есть: фонарь, свет, память о кухне.
-  // Раньше здесь стояла проверка, которую нечем было пройти — тупик.
   const lock = canOpen(door, lockCtx());
   if (!lock.open) {
     hud.toast(lock.reason + '.', 2400);
     return;
   }
-  if (world.goToRoom(target)) {
-    preview.currentRoom = target;
-    reload3d();
-    hud.toast(roomById(target).name + '.', 2200);
-    sticks.reset();
+  const opening = doorOpening(door, world.roomData);
+  if (!opening) {
+    // люк в полу или потолке: там створки нет, но и телепорта быть не должно
+    hud.toast('тут люк. пока не открывается.', 2000);
+    return;
   }
+  pendingDoor = { door, target, opening, openedAt: 0 };
+  scene3d?.openDoor(door.id, world.roomData);
+  hud.toast(lock.reason || 'дверь открыта. иди.', 1800);
+  // разворачиваем камеру на дверь — иначе игрок не поймёт, куда идти
+  faceDoor(opening);
+}
+
+/** Поставить камеру лицом к проёму. */
+function faceDoor(opening) {
+  if (!scene3d) return;
+  const room = world.roomData;
+  const mid = (opening.from + opening.to) / 2;
+  const target = {
+    n: { x: mid, z: -1 },
+    s: { x: mid, z: room.rect.d + 1 },
+    w: { x: -1, z: mid },
+    e: { x: room.rect.w + 1, z: mid },
+  }[opening.side];
+  if (!target) return;
+  // forward камеры = (-sin yaw, -cos yaw) → yaw из вектора на дверь
+  const dx = target.x - world.pos.x;
+  const dz = target.z - world.pos.z;
+  scene3d.yaw = Math.atan2(-dx, -dz);
+}
+
+/** Проход завершён: меняем комнату только когда мальчик реально за порогом. */
+function finishDoor() {
+  const { door, target, opening } = pendingDoor;
+  pendingDoor = null;
+  scene3d?.closeDoor(door.id);
+
+  // точка входа в новой комнате — у ТОЙ ЖЕ двери, с другой стороны,
+  // на 36 см внутрь (столько же, сколько он успел пройти за порог)
+  const room = roomById(target);
+  const entry = entryPoint(door, room, 0.36);
+
+  if (!world.goToRoomDirect(target, entry)) {
+    // если что-то пошло не так — остаёмся на месте, но не в стене
+    world.pos = entry;
+    hud.toast('дверь не поддалась.', 1600);
+    return;
+  }
+  preview.currentRoom = target;
+  reload3d();
+  hud.toast(room.name + '.', 2000);
+  sticks.reset();
 }
 
 function reload3d() {
@@ -259,6 +385,8 @@ function reload3d() {
   // камера разворачивается внутрь комнаты, а не в стену за спиной
   scene3d.setCharacter(world.pos.x, world.pos.z, world.facing, 'idle', torchOn ? 'flashlight' : null);
   scene3d.faceIntoRoom();
+  // дверь, через которую только что вошли, остаётся открытой, пока стоим рядом
+  currentOpenings();
 }
 
 // ─────────────────────────── цикл ───────────────────────────
@@ -270,16 +398,26 @@ function frame(now) {
 
   sticks.update(dt);
 
+  let travelled = 0;
+
   if (!paused) {
     world.update(dt);
     if (mode === '3d') {
-      applyMovement(dt);
+      travelled = applyMovement(dt);
       updateUseHint();
     }
   }
 
   if (mode === '3d' && scene3d) {
-    scene3d.setCharacter(world.pos.x, world.pos.z, world.facing, crouch ? 'sneak' : charState(), torchOn ? 'flashlight' : null);
+    const stateNow = crouch ? 'sneak' : charState();
+    // Пройденные метры — единственный источник фазы походки: ноги физически
+    // не могут двигаться быстрее или медленнее самого движения.
+    scene3d.setCharacter(world.pos.x, world.pos.z, world.facing, stateNow, torchOn ? 'flashlight' : null, {
+      distance: travelled,
+      mode: stateNow === 'run' ? 'run' : stateNow === 'sneak' ? 'sneak' : 'walk',
+      speed: travelled > 0 ? travelled / Math.max(dt, 1e-3) : 0,
+    });
+    scene3d.scared = Math.min(1, world.scales.fear / 100);
     scene3d.render(dt);
   } else {
     preview.currentRoom = world.room;
@@ -299,15 +437,12 @@ function frame(now) {
  */
 let hintState = null;
 function updateUseHint() {
-  const canDoor = Boolean(nearDoor(0.95));
+  const canDoor = Boolean(nearDoor(1.25));
   const canItem = Boolean(nearestItem());
   const next = canDoor ? 'door' : canItem ? 'item' : null;
+  sticks?.setAction(next);
   if (next === hintState) return;   // не трогаем DOM каждый кадр
   hintState = next;
-  const btn = document.querySelector('[data-act="use"]');
-  if (!btn) return;
-  btn.classList.toggle('near-door', next === 'door');
-  btn.classList.toggle('ready', next === 'item');
 }
 
 function charState() {
@@ -325,10 +460,10 @@ startBtn.addEventListener('click', () => {
   lastT = performance.now();
   // мальчик в центре комнаты, а не в 70 см от стены
   const r = world.roomData.rect;
-  world.pos = { x: r.w / 2, z: r.d * 0.45 };
+  world.pos = { x: r.w / 2, z: r.d * 0.55 };
   document.getElementById('controls').classList.add('ready');
   show3d();
-  setTimeout(() => hud.toast('левый стик — идти. правый — смотреть.', 6000), 1500);
+  setTimeout(() => hud.toast('слева стик — идти. по экрану веди пальцем — смотреть.', 6000), 1500);
   requestAnimationFrame(frame);
 });
 

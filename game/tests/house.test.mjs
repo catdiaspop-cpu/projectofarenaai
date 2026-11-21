@@ -60,7 +60,13 @@ t('двери стоят на стыке комнат', () => {
 });
 
 t('дом связный: из детской можно дойти до всех комнат', () => {
-  const flags = { 'hall-yard': true, 'cor-attic': true, 'hall-basement': true };
+  // Кладовая теперь заперта со стороны лестницы (дверь living→pantry убрана:
+  // эти комнаты не соседние, между ними прихожая и лестница), поэтому
+  // в обходе дома открываем и её — проверяем саму топологию.
+  const flags = {
+    'hall-yard': true, 'cor-attic': true, 'hall-basement': true,
+    'stairs-pantry': true, 'living-flat': true,
+  };
   for (const r of ROOMS) {
     if (r.kind === 'yard') continue;
     const p = findPath('childroom', r.id, flags);
@@ -74,7 +80,13 @@ t('без ключей чердак и подвал закрыты', () => {
 });
 
 t('самый длинный маршрут ощущается как большой дом', () => {
-  const flags = { 'hall-yard': true, 'cor-attic': true, 'hall-basement': true };
+  // Кладовая теперь заперта со стороны лестницы (дверь living→pantry убрана:
+  // эти комнаты не соседние, между ними прихожая и лестница), поэтому
+  // в обходе дома открываем и её — проверяем саму топологию.
+  const flags = {
+    'hall-yard': true, 'cor-attic': true, 'hall-basement': true,
+    'stairs-pantry': true, 'living-flat': true,
+  };
   const sneak = longestRoute(flags, 'sneak');
   const run = longestRoute(flags, 'run');
   ok(sneak.seconds > 55, `ночью дом проходится слишком быстро: ${sneak.seconds.toFixed(1)} с`);
@@ -322,7 +334,9 @@ t('поза детерминирована и не выдаёт NaN', () => {
 });
 
 t('ходьба даёт шаг, а стояние — нет', () => {
-  const walk = pose({ speed: 0.8 }, 1.0);
+  // фаза теперь приходит из пройденных метров (gait.mjs), а не из времени:
+  // поэтому в тесте её надо задать явно — 0 = ноги вместе, 0.25 = размах
+  const walk = pose({ speed: 0.8, phase: 0.25 }, 1.0);
   const idle = pose({ speed: 0 }, 1.0);
   ok(walk.legL.x !== idle.legL.x, 'при ходьбе ноги должны двигаться');
   near(idle.legL.x, 0, 0.02, 'стоя ноги должны быть прямыми');
@@ -331,7 +345,9 @@ t('ходьба даёт шаг, а стояние — нет', () => {
 t('присед опускает мальчика', () => {
   const stand = pose({ crouch: 0 }, 0.5);
   const crouched = pose({ crouch: 1 }, 0.5);
-  ok(crouched.root.y < stand.root.y - 0.1, 'присед не опускает корень');
+  // таз опускается ровно настолько, насколько укоротилась нога —
+  // поэтому порог 8 см, а не 10: это честная геометрия, а не «погружение в пол»
+  ok(crouched.root.y < stand.root.y - 0.08, 'присед не опускает корень');
 });
 
 t('моргание происходит периодически', () => {

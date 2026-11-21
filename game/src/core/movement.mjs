@@ -8,9 +8,21 @@
 
 export const BODY_RADIUS = 0.22;   // полутолщина мальчика
 export const PAD = 0.15;           // запас при обходе мебели
+export const SILL = 0.28;          // ширина порога у двери: в него можно войти
 
-/** Влезает ли точка в комнату и не в мебель. */
-export function fits(pos, room, obstacles = []) {
+/**
+ * Влезает ли точка в комнату и не в мебель.
+ * @param {Array} openings — проёмы (двери): [{ side:'n'|'s'|'w'|'e', from, to }]
+ *        Проём — это не стена: в него можно войти, и выйти за край комнаты
+ *        можно ровно через него. Так двери становятся настоящими, а не
+ *        телепортацией.
+ */
+export function fits(pos, room, obstacles = [], openings = []) {
+  const inOpening = openings.find((o) => pointInOpening(pos, room, o));
+  if (inOpening) {
+    // внутри порога мебель не мешает, но и в стену не проваливаемся
+    return true;
+  }
   if (pos.x < BODY_RADIUS || pos.z < BODY_RADIUS) return false;
   if (pos.x > room.w - BODY_RADIUS || pos.z > room.d - BODY_RADIUS) return false;
   for (const o of obstacles) {
@@ -22,14 +34,53 @@ export function fits(pos, room, obstacles = []) {
   return true;
 }
 
+/** Точка в полосе порога (в пределах SILL от стены). */
+export function pointInOpening(pos, room, o) {
+  const half = (o.to - o.from) / 2;
+  const mid = o.from + half;
+  if (o.side === 'n') return Math.abs(pos.z) <= SILL && Math.abs(pos.x - mid) <= half;
+  if (o.side === 's') return Math.abs(pos.z - room.d) <= SILL && Math.abs(pos.x - mid) <= half;
+  if (o.side === 'w') return Math.abs(pos.x) <= SILL && Math.abs(pos.z - mid) <= half;
+  if (o.side === 'e') return Math.abs(pos.x - room.w) <= SILL && Math.abs(pos.z - mid) <= half;
+  return false;
+}
+
+/**
+ * Где мальчик оказался после шага в дверь: за порогом.
+ * → { side, room: 'new'|'same', step } — если side не null, пора менять комнату.
+ */
+export function crossedThreshold(pos, room, openings = []) {
+  for (const o of openings) {
+    const half = (o.to - o.from) / 2;
+    const mid = o.from + half;
+    // Порог = линия стены. Раньше условие требовало зайти почти на самый
+    // край разрешённой полосы (SILL минус 2 см), и при неудачном шаге мальчик
+    // застревал в проёме навсегда: до порога не дотянуться, а дальше не
+    // пускает проверка «не в стене». Теперь достаточно пересечь стену.
+    if (o.side === 'n' && pos.z < -0.02 && Math.abs(pos.x - mid) <= half) {
+      return { side: 'n', out: { x: pos.x, z: 0 } };
+    }
+    if (o.side === 's' && pos.z > room.d + 0.02 && Math.abs(pos.x - mid) <= half) {
+      return { side: 's', out: { x: pos.x, z: room.d } };
+    }
+    if (o.side === 'w' && pos.x < -0.02 && Math.abs(pos.z - mid) <= half) {
+      return { side: 'w', out: { x: 0, z: pos.z } };
+    }
+    if (o.side === 'e' && pos.x > room.w + 0.02 && Math.abs(pos.z - mid) <= half) {
+      return { side: 'e', out: { x: room.w, z: pos.z } };
+    }
+  }
+  return null;
+}
+
 /**
  * Подвинуть позицию на delta с учётом препятствий.
  * → { pos, moved, blocked }
  */
-export function slide(pos, delta, room, obstacles = []) {
+export function slide(pos, delta, room, obstacles = [], openings = []) {
   const next = { x: pos.x + delta.x, z: pos.z + delta.z };
 
-  if (fits(next, room, obstacles)) {
+  if (fits(next, room, obstacles, openings)) {
     return { pos: next, moved: Math.hypot(delta.x, delta.z), blocked: false };
   }
 
@@ -37,10 +88,10 @@ export function slide(pos, delta, room, obstacles = []) {
   const tryX = { x: next.x, z: pos.z };
   const tryZ = { x: pos.x, z: next.z };
 
-  if (fits(tryX, room, obstacles) && Math.abs(delta.x) > 1e-6) {
+  if (fits(tryX, room, obstacles, openings) && Math.abs(delta.x) > 1e-6) {
     return { pos: tryX, moved: Math.abs(delta.x), blocked: true };
   }
-  if (fits(tryZ, room, obstacles) && Math.abs(delta.z) > 1e-6) {
+  if (fits(tryZ, room, obstacles, openings) && Math.abs(delta.z) > 1e-6) {
     return { pos: tryZ, moved: Math.abs(delta.z), blocked: true };
   }
 
@@ -52,12 +103,12 @@ export function slide(pos, delta, room, obstacles = []) {
  * Шаг по стику: направление в мире × скорость × dt.
  * dir — единичный вектор, speed — м/с, dt — секунды.
  */
-export function step(pos, dir, speed, dt, room, obstacles = []) {
+export function step(pos, dir, speed, dt, room, obstacles = [], openings = []) {
   if (!speed || !dt || !dir) return { pos: { ...pos }, moved: 0, blocked: false };
   const len = Math.hypot(dir.x, dir.z);
   if (len < 1e-6) return { pos: { ...pos }, moved: 0, blocked: false };
   const delta = { x: (dir.x / len) * speed * dt, z: (dir.z / len) * speed * dt };
-  return slide(pos, delta, room, obstacles);
+  return slide(pos, delta, room, obstacles, openings);
 }
 
 /** Стик (−1…1, экранные оси) → единичный вектор в мире по матрице камеры. */

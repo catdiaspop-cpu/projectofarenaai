@@ -14,11 +14,19 @@ import { roomById, floors } from '../sim/graph.mjs';
 import { LAYOUT } from '../data/layout.mjs';
 import { PROPS } from '../world/props.mjs';
 import { LIGHTS, WINDOWS, HEIGHTS, DOORS } from '../data/house.mjs';
+import { ROOM_LOOK } from '../data/rooms.mjs';
 import { PARTS, BODY, pose } from '../world/character.mjs';
 import { roomShellParts, atticRoofParts } from './builders.mjs';
 import { buildGroup, buildProp, materialFor, disposeGroup } from './mesher.mjs';
 import { partsOf } from '../world/builder.mjs';
 import { Character } from './character.mjs';
+import { ViewModel, FP } from './viewmodel.mjs';
+import { bobCycle, strideFor } from '../world/gait.mjs';
+
+// На сколько поворачивается створка на петле. 1.42 рад ≈ 81°: дверь почти
+// прижата к стене и не мешает пройти, но всё ещё «дверь».
+const DOOR_OPEN_ANGLE = 1.42;
+import { leafTransform, leafAngle, swingSign } from '../sim/doors.mjs';
 
 const RENDER_SCALE = 0.75;
 
@@ -42,7 +50,7 @@ export class Scene3D {
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x05070a);
 
-    this.camera = new THREE.PerspectiveCamera(62, 1, 0.05, 40);
+    this.camera = new THREE.PerspectiveCamera(68, 1, 0.03, 40);
     this.onTap = onTap;
 
     this.roomId = null;
@@ -69,22 +77,29 @@ export class Scene3D {
     // свет ночника и ламп комнаты
     this.roomLights = [];
 
-    // Камера от третьего лица, через плечо.
-    // Камера больше НЕ стоит внутри мальчика: игрок должен его видеть.
+    // ── Камера ОТ ПЕРВОГО ЛИЦА ──
+    // Глаза ребёнка на высоте 1.10 м: дверь 2.05 м нависает вдвое выше роста,
+    // и это самый честный способ показать, что мальчик маленький.
+    // Первый раз экран был чёрным не из-за вида, а из-за камеры в стене,
+    // света 0.53 и выключенного фонаря — это всё исправлено выше.
+    this.fp = true;
     this.yaw = 0;
-    this.pitch = -0.3;
-    // Подобрано проекцией, а не на глаз: при 1.35 м и высоте 2.0 м мальчик
-    // занимает ~45% высоты экрана (было 84% — видно только затылок) и в кадре
-    // виден пол на 2.5 м вперёд. Камера при этом влезает даже в детскую 3.4 м.
-    this.camDist = 1.35;         // метров позади
-    this.camHeight = 2.0;        // выше головы мальчика (1.22 м), взгляд вниз
-    this.camShoulder = 0.34;     // сдвиг вправо, «через плечо»
-    this.camLerp = 0;            // сглаженная позиция
-    this.camPos = new THREE.Vector3(0, 1.5, 3);
-    this.camLook = new THREE.Vector3(0, 1.1, 0);
-    this.walkBob = 0;
+    this.pitch = 0;              // 0 = горизонт, вниз отрицательно
+    this.pitchMin = -0.95;
+    this.pitchMax = 0.85;
+    // глаза двигаются вместе с мальчиком; bob и sway — от фазы шага
+    this.eye = new THREE.Vector3(0, FP.eyeHeight, 0);
+    this.eyeBase = FP.eyeHeight;
+    this.bobY = 0;
+    this.bobX = 0;
+    this.shake = 0;              // испуг: дрожь кадра
     this.t = 0;
     this.flicker = 0;
+    this.phase = 0;              // фаза шага, приходит из пройденных метров
+    this.speed = 0;
+    this.state = 'idle';
+    this.scared = 0;
+    this.holding = 'flashlight';
   }
 
   resize(w, h) {
@@ -94,7 +109,10 @@ export class Scene3D {
     this.renderer.setPixelRatio(pr);
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
+    // на узком экране телефона поле зрения шире, иначе в кадр влезает «щель»
+    this.camera.fov = w / h < 0.62 ? 74 : 68;
     this.camera.updateProjectionMatrix();
+    this.fpScene?.resize(w, h);
   }
 
   /** Загрузить комнату. */
@@ -157,20 +175,18 @@ export class Scene3D {
 
     this.roomGroup = group;
     this.scene.add(group);
+    this.buildDoors(room);
 
     // поставить мальчика в центр комнаты (позицию задаёт World)
     this.character.root.position.set(0, 0, 0);
     this.applyEnvironment(room);
 
-    // камера сразу на своё место, иначе первый кадр — из стены
-    this.camPos.set(
-      Math.sin(this.yaw) * this.camDist + this.camShoulder,
-      this.camHeight,
-      Math.cos(this.yaw) * this.camDist,
-    );
-    this.camLook.set(0, 1.1, 0);
-    this.camera.position.copy(this.camPos);
-    this.camera.lookAt(this.camLook);
+    // Глаза ставятся там, где стоит мальчик. Первый кадр был чёрным, когда
+    // камера оставалась в стене, — теперь позиция глаз всегда под телом.
+    this.eye.set(this.character.root.position.x, this.eyeBase, this.character.root.position.z);
+    this.camera.position.copy(this.eye);
+    this.camera.rotation.order = 'YXZ';
+    this.camera.rotation.set(this.pitch, this.yaw, 0);
   }
 
   applyEnvironment(room) {
@@ -199,6 +215,90 @@ export class Scene3D {
     this.torch.intensity = on ? 5.5 * power : 0;
   }
 
+  /**
+   * Построить створки всех дверей комнаты: панель на петле, косяки, наличник,
+   * ручка. Створка поворачивается вокруг петли — это видно и читается как дверь.
+   */
+  buildDoors(room) {
+    this.doors = new Map();
+    const opener = DOORS.filter((d) => d.a === room.id || d.b === room.id);
+    for (const d of opener) {
+      const tr = leafTransform(d, room, 0);
+      if (!tr) continue;   // люк в полу/потолке — не створка
+
+      // Петля на краю проёма. Створка висит на ней и поворачивается вокруг
+      // ОСИ Y: стоя на месте, она закрывает проём, открывшись — уходит
+      // в комнату. Раньше здесь был перепутан порядок (baseRot сбрасывался
+      // в 0, угол писался не туда), и вместо открывания створка ехала вбок.
+      const leaf = new THREE.Group();
+      leaf.position.set(tr.hinge.x, 0, tr.hinge.z);
+      leaf.rotation.y = tr.baseRot;
+
+      // панель — от петли в сторону проёма, на всю ширину
+      const panel = buildProp([
+        { t: 'box', w: tr.panel.w, h: tr.panel.h, d: tr.panel.t, p: [0, 0, 0], mat: 'door' },
+        { t: 'box', w: tr.panel.w - 0.18, h: tr.panel.h - 0.34, d: 0.008, p: [0, 0.03, tr.panel.t / 2 + 0.004], mat: 'doorPanel' },
+        { t: 'box', w: tr.panel.w - 0.18, h: tr.panel.h - 0.34, d: 0.008, p: [0, 0.03, -tr.panel.t / 2 - 0.004], mat: 'doorPanel' },
+      ], { x: tr.dir.x * tr.panel.w / 2, y: tr.panel.h / 2, z: tr.dir.z * tr.panel.w / 2 });
+      leaf.add(panel);
+
+      // ручка с обеих сторон — на своей высоте, где рука ребёнка
+      const handleMat = 'doorHandle';
+      for (const side of [-1, 1]) {
+        const h = buildProp([{ t: 'sph', r: 0.028, p: [0, 0, 0], mat: handleMat }], {
+          x: tr.handle.x - tr.hinge.x,
+          y: tr.handle.y,
+          z: tr.handle.z - tr.hinge.z + side * (tr.panel.t / 2 + 0.02),
+        });
+        leaf.add(h);
+      }
+
+      this.roomGroup.add(leaf);
+
+      // косяки и наличник — из отделки этой комнаты
+      const trimMat = (ROOM_LOOK[room.kind] ?? ROOM_LOOK.hall).trim;
+      for (const j of tr.jambs) {
+        this.roomGroup.add(buildProp([{ t: 'box', w: j.w, h: j.h, d: j.t, p: [0, 0, 0], mat: trimMat }],
+          { x: j.x, y: j.h / 2, z: j.z }));
+      }
+      const li = tr.lintel;
+      this.roomGroup.add(buildProp([{ t: 'box', w: li.w, h: li.h, d: li.t, p: [0, 0, 0], mat: trimMat }],
+        { x: li.x, y: li.y, z: li.z }));
+
+      // в какую сторону открывается: внутрь комнаты, а не сквозь стену
+      this.doors.set(d.id, {
+        group: leaf, baseRot: tr.baseRot, dir: tr.dir,
+        swing: swingSign(tr, room), open: false, angle: 0,
+      });
+    }
+  }
+
+  /** Открыть дверь: створка поворачивается на петле. */
+  openDoor(id) {
+    const d = this.doors?.get(id);
+    if (!d) return;
+    d.open = true;
+  }
+
+  closeDoor(id) {
+    const d = this.doors?.get(id);
+    if (!d) return;
+    d.open = false;
+  }
+
+  /** Плавно довести все створки до нужного угла. */
+  animateDoors(dt) {
+    if (!this.doors) return;
+    for (const d of this.doors.values()) {
+      const target = d.open ? DOOR_OPEN_ANGLE * (d.swing ?? 1) : 0;
+      const k = Math.min(1, dt * (d.open ? 6.5 : 4.5));
+      d.angle += (target - d.angle) * k;
+      if (Math.abs(d.group.rotation.y - (d.baseRot + d.angle)) < 1e-4) continue;
+      // угол открытия — ДОБАВКА к базовому повороту петли, а не вместо него
+      d.group.rotation.y = d.baseRot + d.angle;
+    }
+  }
+
   setLightState(state) {
     this.lightState = state;
     for (const rl of this.roomLights) {
@@ -209,35 +309,57 @@ export class Scene3D {
   }
 
   /** Позиция мальчика внутри комнаты (локальные метры). */
-  setCharacter(localX, localZ, facing, state, hold) {
+  setCharacter(localX, localZ, facing, state, hold, motion = {}) {
     const room = roomById(this.roomId);
-    this.character.root.position.set(localX - room.rect.w / 2, 0, localZ - room.rect.d / 2);
+    const lx = localX - room.rect.w / 2;
+    const lz = localZ - room.rect.d / 2;
+    this.character.root.position.set(lx, 0, lz);
     this.character.facing = facing;
     this.character.setState(state);
     this.character.hold(hold);
+
+    // ── глаза = голова тела ──
+    // Камера не «висит в комнате»: она стоит там, где у мальчика глаза, и
+    // едет вместе с ним. Иначе первый кадр смотрит из одной точки, а тело
+    // уходит — та самая «телепортация», которую мы убирали.
+    this.eye.set(lx, this.eyeBase, lz);
+
+    // покачивание считается по пройденным метрам (мотion.distance), а не по
+    // времени — поэтому не может разойтись с шагами
+    const d = motion.distance ?? 0;
+    if (d > 0) this.phase += d / (motion.stride ?? strideFor(motion.mode ?? 'walk'));
+    this.speed = motion.speed ?? 0;
+    this.state = state;
+    this.bobY = bobCycle(this.phase) * FP.bobAmp * (0.6 + this.speed);
+    this.bobX = Math.sin(this.phase * Math.PI) * FP.swayAmp * this.speed;
+    this.shake = Math.min(0.012, this.scared * 0.012);
   }
 
-  /** Поставить камеру так, чтобы она смотрела в комнату (после входа в дверь). */
-  faceIntoRoom() {
+  /**
+   * Развернуть взгляд в комнату после входа в дверь.
+   * Только поворот головы — позицию глаз задаёт setCharacter.
+   */
+  faceIntoRoom(toward = null) {
     const room = roomById(this.roomId);
     if (!room) return;
     const ch = this.character.root.position;
-    // вектор от мальчика к центру комнаты
-    const dx = -ch.x, dz = -ch.z;
-    // forward камеры = (-sin yaw, -cos yaw); хотим, чтобы он смотрел на центр
+    // куда смотреть: в переданную точку или в центр комнаты
+    const tx = toward ? toward.x - room.rect.w / 2 : 0;
+    const tz = toward ? toward.z - room.rect.d / 2 : 0;
+    const dx = tx - ch.x;
+    const dz = tz - ch.z;
+    if (Math.hypot(dx, dz) < 0.05) return;   // стоим в центре — некуда смотреть
+    // forward камеры = (-sin yaw, -cos yaw)
     this.yaw = Math.atan2(-dx, -dz);
-    this.camPos.set(ch.x + Math.sin(this.yaw) * this.camDist, this.camHeight, ch.z + Math.cos(this.yaw) * this.camDist);
-    this.camLook.set(ch.x, 1.12, ch.z);
-    this.camera.position.copy(this.camPos);
-    this.camera.lookAt(this.camLook);
+    this.pitch = -0.12;                       // чуть под ноги, как при входе
   }
 
   /** Поворот камеры (стик справа или свайп). Yaw — свободный, pitch ограничен. */
   rotate(deltaYaw, deltaPitch = 0) {
     this.yaw += deltaYaw;
-    // Нижняя граница — из расчёта кадра: при 1.35 м и высоте 2.0 м наклон
-    // −0.62 даёт мальчика на 70% экрана. Ограничиваем −0.5 — максимум 57%.
-    this.pitch = Math.max(-0.5, Math.min(0.42, this.pitch + deltaPitch));
+    // От первого лица вниз можно смотреть почти в пол — видно свои ноги,
+    // вверх — до потолка. Раньше здесь стояло −0.5/0.42 от камеры-за-спиной.
+    this.pitch = Math.max(this.pitchMin, Math.min(this.pitchMax, this.pitch + deltaPitch));
   }
 
   render(dt) {
@@ -247,82 +369,57 @@ export class Scene3D {
     const ch = this.character;
     ch.update(dt);
 
-    // ── камера от третьего лица, через плечо ──
-    const speedFactor = ch.state === 'walk' ? 1 : ch.state === 'run' ? 1.6 : ch.state === 'sneak' ? 0.5 : 0;
-    this.walkBob += dt * (6 + speedFactor * 4) * (speedFactor > 0 ? 1 : 0);
-    const bob = Math.sin(this.walkBob) * 0.01 * speedFactor;
-
-    const head = ch.root.position;
-    const focus = new THREE.Vector3(head.x, 1.02 + bob * 0.5, head.z);
-
-    // точка, куда сдвигается камера: назад по yaw и вправо через плечо
-    const back = new THREE.Vector3(
-      Math.sin(this.yaw) * this.camDist,
-      0,
-      Math.cos(this.yaw) * this.camDist,
+    // ── камера: глаза мальчика, без всякой «третьей стороны» ──
+    // bob по вертикали и sway вбок/вкренг привязаны к фазе шага
+    const shakeX = this.shake ? Math.sin(this.t * 41.3) * this.shake : 0;
+    const shakeY = this.shake ? Math.sin(this.t * 33.7) * this.shake * 0.7 : 0;
+    this.camera.position.set(
+      this.eye.x + this.bobX + shakeX,
+      this.eye.y + this.bobY + shakeY,
+      this.eye.z,
     );
+    this.camera.rotation.order = 'YXZ';
+    this.camera.rotation.set(
+      this.pitch + (this.shake ? Math.sin(this.t * 27.1) * this.shake * 0.8 : 0),
+      this.yaw,
+      this.bobX * 1.6,      // крен в такт шагу
+    );
+
+    // мальчик целиком уходит из кадра (он и есть камера), но модель жива:
+    // тень, отражения и будущие катсцены
+    this.character.root.visible = false;
+
+    // ── фонарь: светит из правой руки туда, куда смотрим ──
+    const fwd = new THREE.Vector3(0, 0, -1).applyEuler(new THREE.Euler(0, this.yaw, 0, 'YXZ'));
     const right = new THREE.Vector3(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
-    const desired = new THREE.Vector3(
-      focus.x + back.x + right.x * this.camShoulder,
-      this.camHeight + bob + Math.sin(this.pitch) * 1.1,
-      focus.z + back.z + right.z * this.camShoulder,
+    this.torch.position.set(
+      this.eye.x + right.x * 0.2 - fwd.x * 0.15,
+      this.eye.y - 0.12,
+      this.eye.z + right.z * 0.2 - fwd.z * 0.15,
     );
+    this.torchTarget.position.copy(this.torch.position).addScaledVector(fwd, 3.5);
+    this.torchTarget.position.y -= 0.25 + Math.tan(this.pitch) * 1.2;
 
-    // ── камера не проходит сквозь стены ──
-    // Если сзади стена, камера не влезает — поднимаемся выше и смотрим вниз,
-    // как в мобильных ужастиках. Это всегда работает и ничего не ломает.
-    const room = roomById(this.roomId);
-    if (room) {
-      // в тесной комнате (коридор 8×1.5) запас 0.3 м не оставляет места —
-      // считаем от узкой стороны, но стенку не пробиваем
-      const margin = Math.min(0.3, Math.min(room.rect.w, room.rect.d) * 0.18);
-      const hw = room.rect.w / 2 - margin;
-      const hd = room.rect.d / 2 - margin;
-      const clamp = (v, lim) => Math.max(-lim, Math.min(lim, v));
-      const fits = (v) => Math.abs(v.x) < hw && Math.abs(v.z) < hd;
-      if (!fits(desired)) {
-        // 1) поджимаем дистанцию, но не ближе ~0.85 м:
-        //    вплотную к затылку мальчик занимает весь экран, это не обзор
-        let k = 0.95;
-        for (; k >= 0.45; k -= 0.1) {
-          desired.set(
-            focus.x + back.x * k + right.x * this.camShoulder * k,
-            this.camHeight + bob + Math.sin(this.pitch) * 1.1,
-            focus.z + back.z * k + right.z * this.camShoulder * k,
-          );
-          if (fits(desired)) break;
-        }
-        // 2) если всё равно не влезли — поднимаемся над мальчиком и смотрим вниз
-        if (!fits(desired)) {
-          // совсем узкая комната (коридор 8×1.5, кладовка): сзади физически
-          // нет места, поэтому смотрим сверху. Отступ берём максимально
-          // возможный — сколько есть до стены, а не фиксированный.
-          const room2 = Math.max(0.05, Math.min(hd - Math.abs(focus.z), hd) * 0.92);
-          const along = back.z !== 0 ? back.z / Math.abs(back.z) : 0;
-          const side = back.x !== 0 ? back.x / Math.abs(back.x) : 0;
-          desired.set(
-            focus.x + side * room2 * 0.5 + right.x * 0.16,
-            this.camHeight + 0.58 + bob,
-            focus.z + along * room2 + right.z * 0.16,
-          );
-        }
-        desired.x = clamp(desired.x, hw);
-        desired.z = clamp(desired.z, hd);
-      }
+    // ── руки от первого лица ──
+    if (!this.fpScene) {
+      this.fpScene = new ViewModel(this.renderer, this.scene);
+      this.fpScene.resize(this.cssW ?? 800, this.cssH ?? 600);
     }
+    this.fpScene.update(dt, {
+      // ровно та же поза, что у мира: иначе руки «плывут» относительно комнаты
+      eye: this.camera.position,
+      yaw: this.yaw,
+      pitch: this.pitch,
+      roll: this.camera.rotation.z,
+      phase: this.phase,
+      speed: this.speed,
+      state: this.state,
+      scared: this.scared,
+      torchOn: this.torch.intensity > 0.01,
+      holding: this.holding,
+    });
 
-    // сглаживание: камера не телепортируется
-    const smooth = Math.min(1, dt * 9);
-    this.camPos.lerp(desired, smooth);
-    this.camLook.lerp(new THREE.Vector3(focus.x, focus.y + 0.08, focus.z), Math.min(1, dt * 12));
-    this.camera.position.copy(this.camPos);
-    this.camera.lookAt(this.camLook);
-
-    // фонарь светит из рук мальчика вперёд, куда смотрит камера
-    const dir = new THREE.Vector3(0, 0, -1).applyEuler(new THREE.Euler(0, Math.PI + this.yaw, 0, 'YXZ'));
-    this.torch.position.set(head.x + right.x * 0.2, 0.95, head.z + right.z * 0.2);
-    this.torchTarget.position.copy(this.torch.position.clone().add(dir.multiplyScalar(3.2)));
-    this.torch.target.position.y -= 0.35;
+    this.animateDoors(dt);
 
     // мерцание ламп
     for (const rl of this.roomLights) {
@@ -331,7 +428,10 @@ export class Scene3D {
       rl.light.intensity = rl.def.power * 3.2 * (1 + this.flicker * (fl / 0.02));
     }
 
+    this.renderer.autoClear = true;
     this.renderer.render(this.scene, this.camera);
+    // руки поверх мира: не режутся стенами и мебелью
+    this.fpScene.render();
   }
 
   /** Сколько треугольников в сцене — для замера. */
