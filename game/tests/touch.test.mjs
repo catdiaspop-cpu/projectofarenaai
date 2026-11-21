@@ -177,7 +177,7 @@ t('service worker зарегистрирован и знает все модул
   // sw.js лежал с самого начала, но его никто не регистрировал: офлайна не
   // было вообще, а на телефоне жил вчерашний код.
   const main = readFileSync(new URL('../src/main.mjs', import.meta.url), 'utf8');
-  ok(main.includes("serviceWorker.register('./sw.js')"), 'service worker не регистрируется');
+  ok(/serviceWorker\.register\('\.\/sw\.js'/.test(main), 'service worker не регистрируется');
   const sw = readFileSync(new URL('../sw.js', import.meta.url), 'utf8');
   const mods = [...readFileSync(new URL('../src/main.mjs', import.meta.url), 'utf8')
     .matchAll(/from '\.\/([^']+\.mjs)'/g)].map((m) => m[1]);

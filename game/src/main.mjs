@@ -22,6 +22,7 @@ const sceneCanvas = document.getElementById('scene');
 const mapCanvas = document.getElementById('map');
 const hudRoot = document.getElementById('hud');
 const boot = document.getElementById('boot');
+const bootVer = document.getElementById('boot-ver');
 const startBtn = document.getElementById('start');
 
 const world = new World();
@@ -547,7 +548,42 @@ setInterval(() => {
 
 document.addEventListener('visibilitychange', () => {
   lastT = performance.now();
+  // Вернулись в игру — проверить, не вышел ли новый деплой. Без этого
+  // телефон мог жить на кэше сутками и «правки не применялись».
+  if (document.visibilityState === 'visible') checkForUpdate();
 });
+
+/**
+ * Проверка обновления и перезагрузка на новую версию.
+ *
+ * Правки «не применялись» на телефоне не потому, что их не было, а потому
+ * что страница оставалась открытой со старым кодом: модули уже загружены,
+ * service worker новый, но текущий документ о нём не знает. Теперь при
+ * возврате в игру и раз в 5 минут мы спрашиваем sw.js заново, и если
+ * управляющий воркер сменился — перезагружаемся один раз.
+ */
+let reloadedForUpdate = false;
+// Уже был управляющий воркер? На ПЕРВОМ визите его нет, и controllerchange
+// прилетит от clients.claim() — перезагружать страницу из-за этого нельзя,
+// иначе игра дёргается при каждом открытии с пустым кэшем.
+const hadController = Boolean(navigator.serviceWorker?.controller);
+function checkForUpdate() {
+  if (!('serviceWorker' in navigator)) return;
+  navigator.serviceWorker.getRegistration()
+    .then((reg) => reg?.update?.())
+    .catch(() => {});
+}
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (reloadedForUpdate || !hadController) return;
+    reloadedForUpdate = true;
+    // не в середине ночи: если игрок уже играет, обновление подхватится
+    // при следующем запуске, а не вырвет его из комнаты
+    if (!running) location.reload();
+  });
+  setInterval(checkForUpdate, 5 * 60 * 1000);
+}
 
 // ─────────────────────────── офлайн ───────────────────────────
 // Регистрация service worker. Файл sw.js существовал с самого начала, но его
@@ -556,11 +592,22 @@ document.addEventListener('visibilitychange', () => {
 // работает: код с сервера важнее кэша, кэш — только когда сети нет.
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('./sw.js').catch((err) => {
+    navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).catch((err) => {
       console.warn('офлайн-кэш не включился', err);
     });
   });
 }
+
+// Номер сборки: кэш кричит о себе только один раз, а номер видно всегда.
+// Собирается из sw.js (там лежит хэш содержимого) — то есть это ровно тот
+// номер, который напечатала сборка.
+fetch('./sw.js', { cache: 'no-store' })
+  .then((r) => (r.ok ? r.text() : ''))
+  .then((t) => {
+    const m = t.match(/CACHE_VERSION = '([^']+)'/);
+    if (bootVer) bootVer.textContent = m ? `сборка ${m[1]}` : 'сборка: локальная';
+  })
+  .catch(() => { if (bootVer) bootVer.textContent = ''; });
 
 preview.resize();
 preview.draw(0);
