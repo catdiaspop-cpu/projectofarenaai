@@ -1,13 +1,17 @@
 // Точка входа.
 //
-// Порядок запуска выбран так, чтобы на слабом телефоне игрок увидел картинку
-// раньше, чем загрузится 3D: сначала разрез дома (2D, 2 мс), потом 3D.
+// Управление: два стика и кнопки. Никаких «тап по полу» — на телефоне это
+// не работает, палец закрывает экран и попасть в точку нельзя.
+//
+// Левая половина экрана — идти, правая — смотреть. Кнопки справа сверху.
 
 import { World, PHASE } from './core/app.mjs';
-import { GestureParser, GESTURE } from './core/input.mjs';
 import { Hud } from './ui/hud.mjs';
+import { Sticks } from './ui/sticks.mjs';
 import { HousePreview } from './render/house-preview.mjs';
-import { roomById } from './sim/graph.mjs';
+import { roomById, SPEED } from './sim/graph.mjs';
+import { DOORS } from './data/house.mjs';
+import { moveMode, cameraDelta } from './core/joystick.mjs';
 import { PROPS } from './world/props.mjs';
 
 const app = document.getElementById('app');
@@ -21,15 +25,16 @@ const world = new World();
 let scene3d = null;
 let preview = null;
 let hud = null;
+let sticks = null;
 let mode = 'map';
 let running = false;
 let lastT = 0;
-let lookTarget = 0;
 let torchOn = false;
 let crouch = false;
 let paused = false;
+let sceneLoading = false;
 
-// ─────────────────────────── карта (2D) ───────────────────────────
+// ─────────────────────────── сцены ───────────────────────────
 
 preview = new HousePreview(mapCanvas);
 preview.currentRoom = world.room;
@@ -38,65 +43,79 @@ function showMap() {
   mode = 'map';
   app.dataset.mode = 'map';
   preview.resize();
+  sticks?.reset();
 }
 
 function show3d() {
-  if (!scene3d) {
-    // ленивая загрузка three.js: до первого показа 3D код не тратится
-    import('./render/scene3d.mjs').then(({ Scene3D }) => {
-      scene3d = new Scene3D(sceneCanvas);
-      scene3d.resize(window.innerWidth, window.innerHeight);
-      scene3d.load(world.room);
-      scene3d.lightState = world.lightOn;
-      scene3d.setLightState(world.lightOn);
-      mode = '3d';
-      app.dataset.mode = '3d';
-    }).catch((err) => {
-      console.error('3D не запустилось, остаёмся на карте', err);
-      mode = 'map';
-      app.dataset.mode = 'map';
-      hud?.toast('тут телефон не тянет 3D. играем сверху.');
-    });
+  if (scene3d) {
+    mode = '3d';
+    app.dataset.mode = '3d';
     return;
   }
-  mode = '3d';
-  app.dataset.mode = '3d';
+  if (sceneLoading) return;
+  sceneLoading = true;
+  hud?.toast('дом просыпается…');
+  // ленивая загрузка three.js
+  import('./render/scene3d.mjs').then(({ Scene3D }) => {
+    scene3d = new Scene3D(sceneCanvas);
+    scene3d.resize(window.innerWidth, window.innerHeight);
+    scene3d.load(world.room);
+    scene3d.lightState = world.lightOn;
+    scene3d.setLightState(world.lightOn);
+    scene3d.setTorch(true);          // фонарь сразу включён: иначе не видно
+    torchOn = true;
+    scene3d.setCharacter(world.pos.x, world.pos.z, world.facing, 'idle', 'flashlight');
+    scene3d.faceIntoRoom();
+    mode = '3d';
+    app.dataset.mode = '3d';
+    sticks?.setTorch(true);
+    hud?.toast('фонарь в руке. иди.', 2600);
+  }).catch((err) => {
+    console.error('3D не запустилось', err);
+    mode = 'map';
+    app.dataset.mode = 'map';
+    hud?.toast('тут телефон не тянет 3D. играем на карте.');
+  }).finally(() => { sceneLoading = false; });
 }
 
 // ─────────────────────────── HUD ───────────────────────────
 
 hud = new Hud(hudRoot, {
   onAction: (act, arg) => {
+    if (act === 'menu') {
+      paused = !paused;
+      world.paused = paused;
+      hud.toast(paused ? 'пауза' : 'идём дальше');
+    }
+  },
+});
+
+// ─────────────────────────── стики ───────────────────────────
+
+sticks = new Sticks(document.getElementById('controls'), {
+  onButton: (act) => {
     switch (act) {
       case 'torch':
-        torchOn = arg;
+        torchOn = !torchOn;
         scene3d?.setTorch(torchOn);
-        hud.toast(torchOn ? 'фонарь включён. тебя видно.' : 'фонарь выключен. теперь темно.');
+        sticks.setTorch(torchOn);
+        hud.toast(torchOn ? 'фонарь. тебя видно.' : 'темно. зато не видно.', 1800);
         break;
-      case 'go':
-        // главная кнопка: к двери, если близко, иначе в центр комнаты
-        world.walkTo(world.roomData.rect.w / 2, world.roomData.rect.d / 2, 'sneak');
-        break;
-      case 'look':
-        lookTarget = (lookTarget + 0.8) % (Math.PI * 1.1) - Math.PI * 0.55;
-        break;
-      case 'hide':
+      case 'crouch':
         crouch = !crouch;
+        sticks.setCrouch(crouch);
+        hud.toast(crouch ? 'присел. тише.' : 'встал.', 1400);
         break;
-      case 'listenStart':
-        world.listening = true;
-        hud.setHint('слушаешь…');
+      case 'listen':
+        world.listening = !world.listening;
+        sticks.toggleClass('listen', 'on');
+        hud.toast(world.listening ? 'слушаешь…' : 'перестал слушать', 1500);
         break;
-      case 'listenEnd':
-        world.listening = false;
+      case 'use':
+        useNearby();
         break;
-      case 'item':
-        handleItem(arg);
-        break;
-      case 'menu':
-        paused = !paused;
-        world.paused = paused;
-        hud.toast(paused ? 'пауза' : 'идём дальше');
+      case 'map':
+        mode === 'map' ? show3d() : showMap();
         break;
       default:
         break;
@@ -104,82 +123,151 @@ hud = new Hud(hudRoot, {
   },
 });
 
-async function handleItem(id) {
-  const it = [...world.lay.items, ...world.lay.clutter].find((x) => x.id === id);
-  if (!it) return;
-  const prop = PROPS[it.prop];
-  // первый шаг — подойти к предмету
-  const path = world.walkTo(it.x, Math.min(it.z + 0.55, world.roomData.rect.d - 0.3), 'sneak');
-  if (!path) {
-    hud.toast('не пройти: мебель.');
+// ─────────────────────────── действие ───────────────────────────
+
+/** Ближайший предмет в комнате: до 1.2 м. */
+function nearestItem() {
+  const lay = world.lay;
+  let best = null;
+  let bestD = 1.3;
+  for (const it of [...lay.items, ...lay.clutter]) {
+    const d = Math.hypot(it.x - world.pos.x, it.z - world.pos.z);
+    if (d < bestD) { bestD = d; best = it; }
+  }
+  return best;
+}
+
+function useNearby() {
+  // сначала дверь: если стоим у двери, «действие» = войти
+  const room = world.roomData;
+  const nearDoor = DOORS.some((d) => {
+    if (!d.b || (d.a !== world.room && d.b !== world.room)) return false;
+    const lx = d.at.x - room.rect.x;
+    const lz = d.at.z - room.rect.z;
+    return Math.hypot(world.pos.x - lx, world.pos.z - lz) < 0.95;
+  });
+  if (nearDoor) { tryDoor(); return; }
+
+  const it = nearestItem();
+  if (!it) {
+    hud.toast('рядом ничего. подойди ближе.', 1600);
     return;
   }
-  hud.toast(`${prop.name}. подходишь.`);
+  const prop = PROPS[it.prop];
+  hud.toast(`${prop.name ?? it.prop}.`, 1800);
+  world.emit('use', { item: it.id, prop: it.prop });
 }
 
-// ─────────────────────────── жесты по сцене ───────────────────────────
+// ─────────────────────────── движение ───────────────────────────
 
-const parser = new GestureParser({
-  on: (e) => {
-    if (!running) return;
-    if (mode === 'map') {
-      if (e.type === GESTURE.TAP) {
-        const room = preview.hitTest(e.x, e.y);
-        if (room) {
-          if (room === world.room) { show3d(); return; }
-          if (world.goToRoom(room)) {
-            preview.currentRoom = room;
-            hud.toast(`${roomById(room).name}.`);
-            show3d();
-          } else {
-            hud.toast('туда не пройти: закрыто.');
-          }
-        }
-      }
-      return;
-    }
+/** Двигает мальчика по стику внутри комнаты, обходя мебель. */
+function applyMovement(dt) {
+  if (!sticks) return;
+  const st = moveMode(sticks.move, { forceSprint: sticks.sprint, crouching: crouch });
 
-    // 3D-режим
-    switch (e.type) {
-      case GESTURE.SWIPE:
-        scene3d?.rotate(e.dir * -0.42);
-        break;
-      case GESTURE.TAP:
-        tapScene(e);
-        break;
-      case GESTURE.DOUBLE:
-        crouch = !crouch;
-        break;
-      default:
-        break;
-    }
-  },
-});
+  // камера
+  const cd = cameraDelta(sticks.look, dt);
+  if (Math.abs(cd.yaw) > 1e-5 || Math.abs(cd.pitch) > 1e-5) {
+    scene3d?.rotate(cd.yaw, cd.pitch);
+  }
 
-/** Тап по сцене — идти в ту точку пола. */
-function tapScene(e) {
-  const w = window.innerWidth, h = window.innerHeight;
-  const nx = (e.x / w) * 2 - 1;
-  const ny = (e.y / h) * 2 - 1;
-  if (ny < -0.4) return; // верх экрана — не ходьба
-  // проекция: тап дальше по экрану = дальше от камеры
+  if (st.state === 'idle') {
+    world.mode = 'idle';
+    world.moving = false;
+    world.path = null;
+    return;
+  }
+
+  const speed = sticks.move.speedFor(SPEED.walk ?? 0.95, SPEED.run ?? 1.75, !crouch);
+  // Стик вверх = вперёд ОТНОСИТЕЛЬНО КАМЕРЫ.
+  // Оси взяты из реальной матрицы three.js (проверено тестом camera-direction):
+  //   forward = (-sin yaw, -cos yaw), right = (cos yaw, -sin yaw)
+  // Раньше forward был перевёрнут, и «вверх» отправлял мальчика назад.
+  const yaw = scene3d?.yaw ?? 0;
+  const fwdX = -Math.sin(yaw), fwdZ = -Math.cos(yaw);
+  const rightX = Math.cos(yaw), rightZ = -Math.sin(yaw);
+  // на экране Y инвертирован: вверх = -1 = вперёд
+  const ix = sticks.move.value.x;
+  const iy = sticks.move.value.y;
+
+  let dx = fwdX * -iy + rightX * ix;
+  let dz = fwdZ * -iy + rightZ * ix;
+  const len = Math.hypot(dx, dz);
+  if (len < 1e-4) return;
+  dx /= len;
+  dz /= len;
+
   const room = world.roomData;
-  const depth = Math.max(0.9, Math.min(room.rect.d - 0.4, 1.4 + (ny + 0.2) * 4.2));
-  const lateral = nx * Math.min(1.5, room.rect.w / 3);
-  const x = Math.max(0.3, Math.min(room.rect.w - 0.3, room.rect.w / 2 + lateral));
-  const z = Math.max(0.3, Math.min(room.rect.d - 0.3, depth));
-  world.walkTo(x, z, crouch ? 'sneak' : 'walk');
+  const next = {
+    x: world.pos.x + dx * speed * dt,
+    z: world.pos.z + dz * speed * dt,
+  };
+
+  // столкновение с мебелью: пробуем полный шаг, потом по осям
+  const obs = world.obstacles();
+  const fits = (p) => p.x > 0.22 && p.z > 0.22 &&
+    p.x < room.rect.w - 0.22 && p.z < room.rect.d - 0.22 &&
+    !obs.some((o) => p.x > o.x0 - 0.15 && p.x < o.x1 + 0.15 && p.z > o.z0 - 0.15 && p.z < o.z1 + 0.15);
+
+  if (fits(next)) {
+    world.pos = next;
+  } else if (fits({ x: next.x, z: world.pos.z })) {
+    world.pos = { x: next.x, z: world.pos.z };
+  } else if (fits({ x: world.pos.x, z: next.z })) {
+    world.pos = { x: world.pos.x, z: next.z };
+  }
+
+  world.facing = Math.atan2(dx, dz);
+  world.mode = st.state;
+  world.moving = true;
 }
 
-const target = sceneCanvas;
-target.addEventListener('pointerdown', (e) => parser.down({ id: e.pointerId, x: e.clientX, y: e.clientY, t: e.timeStamp, target: 'scene' }));
-target.addEventListener('pointermove', (e) => parser.move({ id: e.pointerId, x: e.clientX, y: e.clientY, t: e.timeStamp }));
-target.addEventListener('pointerup', (e) => parser.up({ id: e.pointerId, x: e.clientX, y: e.clientY, t: e.timeStamp }));
-target.addEventListener('pointercancel', (e) => parser.cancel());
+// ─────────────────────────── дверь ───────────────────────────
 
-mapCanvas.addEventListener('pointerdown', (e) => parser.down({ id: e.pointerId, x: e.clientX, y: e.clientY, t: e.timeStamp, target: 'map' }));
-mapCanvas.addEventListener('pointerup', (e) => parser.up({ id: e.pointerId, x: e.clientX, y: e.clientY, t: e.timeStamp }));
-mapCanvas.addEventListener('pointercancel', (e) => parser.cancel());
+/**
+ * Переход в другую комнату: если мальчик стоит у двери — идём в соседнюю.
+ * Двери берём из данных дома, а не списком в коде.
+ */
+function tryDoor() {
+  const room = world.roomData;
+  const near = DOORS
+    .filter((d) => d.b && (d.a === world.room || d.b === world.room))
+    .map((d) => {
+      const lx = d.at.x - room.rect.x;
+      const lz = d.at.z - room.rect.z;
+      const dist = Math.hypot(world.pos.x - lx, world.pos.z - lz);
+      const target = d.a === world.room ? d.b : d.a;
+      return { door: d, dist, target };
+    })
+    .filter((x) => x.dist < 0.95)
+    .sort((a, b) => a.dist - b.dist);
+
+  if (!near.length) {
+    hud.toast('надо подойти к двери.', 1600);
+    return;
+  }
+  const { door, target } = near[0];
+  if (door.lock && !world.doorFlags[door.id]) {
+    hud.toast(`${door.lock}: пока закрыто.`, 2000);
+    return;
+  }
+  if (world.goToRoom(target)) {
+    preview.currentRoom = target;
+    reload3d();
+    hud.toast(roomById(target).name + '.', 2200);
+    sticks.reset();
+  }
+}
+
+function reload3d() {
+  if (!scene3d) return;
+  scene3d.load(world.room);
+  scene3d.setLightState(world.lightOn);
+  scene3d.setTorch(torchOn);
+  // камера разворачивается внутрь комнаты, а не в стену за спиной
+  scene3d.setCharacter(world.pos.x, world.pos.z, world.facing, 'idle', torchOn ? 'flashlight' : null);
+  scene3d.faceIntoRoom();
+}
 
 // ─────────────────────────── цикл ───────────────────────────
 
@@ -188,15 +276,25 @@ function frame(now) {
   const dt = Math.min(0.05, (now - lastT) / 1000 || 0.016);
   lastT = now;
 
-  parser.tick(now);
-  world.update(dt);
+  sticks.update(dt);
+
+  if (!paused) {
+    world.update(dt);
+    if (mode === '3d') {
+      applyMovement(dt);
+      // у двери показываем подсказку
+      const room = world.roomData;
+      if (world.pos.z > room.rect.d - 0.8) {
+        const btn = document.querySelector('[data-act="use"]');
+        btn?.classList.add('near-door');
+      } else {
+        const btn = document.querySelector('[data-act="use"]');
+        btn?.classList.remove('near-door');
+      }
+    }
+  }
 
   if (mode === '3d' && scene3d) {
-    if (lookTarget !== 0) {
-      const step = Math.sign(lookTarget) * Math.min(Math.abs(lookTarget), dt * 2.2);
-      scene3d.rotate(step);
-      lookTarget -= step;
-    }
     scene3d.setCharacter(world.pos.x, world.pos.z, world.facing, crouch ? 'sneak' : charState(), torchOn ? 'flashlight' : null);
     scene3d.render(dt);
   } else {
@@ -205,18 +303,15 @@ function frame(now) {
   }
 
   hud.update(world);
-
-  for (const ev of world.drainEvents()) {
-    if (ev.type === 'phase') hud.toast({ day: 'утро. светло.', dusk: 'вечереет.', night: 'ночь.', morning: 'рассвет.' }[ev.phase]);
-    if (ev.type === 'room') hud.toast(roomById(ev.room).name + '.');
-  }
+  world.drainEvents();
 
   requestAnimationFrame(frame);
 }
 
 function charState() {
-  if (world.path) return world.mode;
+  if (world.moving && world.mode !== 'idle') return world.mode;
   if (world.listening) return 'listen';
+  if (crouch) return 'sneak';
   return 'idle';
 }
 
@@ -226,10 +321,12 @@ startBtn.addEventListener('click', () => {
   boot.classList.add('hidden');
   running = true;
   lastT = performance.now();
-  // первый заход — сразу комната, а не карта: игрок должен увидеть детскую
+  // мальчик в центре комнаты, а не в 70 см от стены
+  const r = world.roomData.rect;
+  world.pos = { x: r.w / 2, z: r.d * 0.45 };
+  document.getElementById('controls').classList.add('ready');
   show3d();
-  // и через секунду подсказка, что карта есть
-  setTimeout(() => hud.toast('тап — идти. свайп — осмотреться. держи «слушать».', 5200), 1400);
+  setTimeout(() => hud.toast('левый стик — идти. правый — смотреть.', 6000), 1500);
   requestAnimationFrame(frame);
 });
 
@@ -238,30 +335,38 @@ window.addEventListener('resize', () => {
   scene3d?.resize(window.innerWidth, window.innerHeight);
 });
 
-// Меню на клавиатуре — для отладки на компьютере
+// клавиатура для проверки на компьютере
+const keys = new Set();
 window.addEventListener('keydown', (e) => {
+  keys.add(e.key.toLowerCase());
+  if (e.key === 'f') { torchOn = !torchOn; scene3d?.setTorch(torchOn); sticks.setTorch(torchOn); }
+  if (e.key === 'c') { crouch = !crouch; sticks.setCrouch(crouch); }
   if (e.key === 'm') { mode === 'map' ? show3d() : showMap(); }
-  if (e.key === 'f') { torchOn = !torchOn; scene3d?.setTorch(torchOn); }
-  if (e.key === 'Escape') { showMap(); }
+  if (e.key === 'e') useNearby();
 });
+window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
 
-// пауза, когда вкладка не видна: не жжём батарею
+// WASD-эмуляция стика для отладки на компьютере
+setInterval(() => {
+  if (!running || mode !== '3d') return;
+  const has = (...k) => k.some((x) => keys.has(x));
+  if (!has('w', 'a', 's', 'd') && !sticks.move.active) {
+    sticks.move.raw = { x: 0, y: 0 };
+    sticks.move.magnitude = 0;
+  }
+  if (has('w', 'a', 's', 'd') && !sticks.move.active) {
+    const x = (has('d') ? 1 : 0) - (has('a') ? 1 : 0);
+    const y = (has('s') ? 1 : 0) - (has('w') ? 1 : 0);
+    const l = Math.hypot(x, y) || 1;
+    sticks.move.raw = { x: x / l, y: y / l };
+    sticks.move.value = { x: x / l, y: y / l };
+    sticks.move.magnitude = 1;
+  }
+}, 40);
+
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) { paused = true; lastT = performance.now(); }
-  else { paused = false; lastT = performance.now(); }
+  lastT = performance.now();
 });
 
-// ─────────────────────────── офлайн ───────────────────────────
-// Регистрируем только на опубликованном сайте: при локальной разработке
-// кэш service worker'а мешает видеть правки.
-if ('serviceWorker' in navigator && location.protocol.startsWith('http') && !location.hostname.match(/^(localhost|127\.0\.0\.1|0\.0\.0\.0)$/)) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register(new URL("../sw.js", import.meta.url)).catch(() => {
-      /* офлайн необязателен: игра работает и без него */
-    });
-  });
-}
-
-// стартовый кадр карты, пока идёт заставка
 preview.resize();
 preview.draw(0);

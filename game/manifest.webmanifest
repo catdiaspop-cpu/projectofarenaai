@@ -4,7 +4,7 @@
   "description": "Мальчик, дом, бессонница",
   "start_url": "./",
   "display": "fullscreen",
-  "orientation": "portrait",
+  "orientation": "any",
   "background_color": "#05070a",
   "theme_color": "#070a0e",
   "icons": [
