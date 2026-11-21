@@ -112,8 +112,10 @@ console.log(`старая игра в /old/: ${(oldRaw / 1024).toFixed(0)} KB ra
 // рост, а не расползание: three.js один занимает 187 КБ и не растёт.
 // Общий подняли с 260 до 300 КБ по той же причине — до потолка ещё есть
 // запас, и следующий шаг (второй свет на комнату) в него влезает.
+// Отделка стен (филёнки, поясок, карниз, бордюр) — это ещё ~3 КБ, поэтому
+// свой код 112 КБ. Игра по-прежнему стартует офлайн с одного запроса.
 const LIMIT_TOTAL = 300 * 1024;
-const LIMIT_OWN = 105 * 1024;
+const LIMIT_OWN = 112 * 1024;
 let bad = false;
 if (gz > LIMIT_TOTAL) { console.error(`✗ превышен бюджет: ${(gz / 1024).toFixed(0)} KB > ${LIMIT_TOTAL / 1024} KB`); bad = true; }
 if (noThree > LIMIT_OWN) { console.error(`✗ свой код толстый: ${(noThree / 1024).toFixed(1)} KB > ${LIMIT_OWN / 1024} KB`); bad = true; }

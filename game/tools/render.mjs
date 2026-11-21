@@ -22,6 +22,7 @@ import { LAYOUT } from '../src/data/layout.mjs';
 import { PROPS } from '../src/world/props.mjs';
 import { buildParts, PRIMITIVES } from '../src/world/builder.mjs';
 import { roomShellParts } from '../src/render/builders.mjs';
+import { sharedWallBoxes } from '../src/render/scene3d.mjs';
 import { colorOf } from '../src/data/palette.mjs';
 import { World } from '../src/core/app.mjs';
 import { WINDOWS, LIGHTS, HEIGHTS, DOORS } from '../src/data/house.mjs';
@@ -350,7 +351,13 @@ function sceneTris(roomId, opts = {}) {
       const otherId = d.a === roomId ? d.b : d.a;
       const other = roomById(otherId);
       if (!other) continue;
+      // ту же логику, что и в сцене: общую стену рисует только своя комната,
+      // иначе в предпросмотре видно двойную стену и «дыру» в проём
       const shellB = roomShellParts(other, { bare: true });
+      const shared = sharedWallBoxes(room.rect, shellB.parts, {
+        dx: other.rect.x - room.rect.x, dz: other.rect.z - room.rect.z,
+      });
+      shellB.parts = shellB.parts.filter((_, i) => !shared.has(i));
       const ox = other.rect.x - room.rect.x - w / 2;
       const oz = other.rect.z - room.rect.z - d_rect(room).d / 2;
       for (const p2 of shellB.parts) {

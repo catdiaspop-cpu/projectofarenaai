@@ -174,14 +174,23 @@ export const DOORS = [
   { id: 'hall-kitchen', a: 'hall',    b: 'kitchen',at: { x: 6.6, z: 0.9 },  dir: 'x' },
   { id: 'hall-stairs',  a: 'hall',    b: 'stairs', at: { x: 5.6, z: 4.0 },  dir: 'n' },
   { id: 'stairs-pantry',a: 'stairs',  b: 'pantry', at: { x: 6.6, z: 6.4 },  dir: 'x', lock: 'заперто' },
-  { id: 'hall-basement',a: 'hall',    b: 'basement',at:{ x: 5.6, z: 4.0 },  dir: 'n', lock: 'люк в полу' },
-  { id: 'living-flat',  a: 'living',  b: 'parents', at: { x: 3.4, z: 0.0 },  dir: 'n', lock: 'люк в потолке' },
-  // второй этаж
-  { id: 'stairs-up',    a: 'stairs',  b: 'corridor', at: { x: 5.6, z: 3.35 }, dir: 'n', stairs: true },
+  // Подвал под прихожей, и попасть туда можно только вниз: люк в полу,
+  // а не дверь в стене. Это не «телепорт»: он ведёт в ПОДВАЛ, а не обратно,
+  // и открывается своей створкой в полу.
+  { id: 'hall-basement',a: 'hall',    b: 'basement',at:{ x: 5.6, z: 3.6 },  dir: 'n', lock: 'люк в полу', stairs: true },
+  // Спальня родителей на втором этаже — над гостиной: вниз-вверх люк в
+  // потолке, а не дверь.
+  { id: 'living-flat',  a: 'living',  b: 'parents', at: { x: 4.6, z: 0.0 },  dir: 'n', lock: 'люк в потолке', stairs: true },
+  // второй этаж.
+  // Точки дверей — на ОБЩЕЙ стене двух комнат, иначе doorSide() не находит
+  // стену и переход вырождается: мальчик «переходит» и оказывается там же.
+  // Лестница сюда не доходит (этаж 0 против этажа 1), поэтому со второго
+  // этажа вниз ведёт обычная дверь на лестничную клетку.
+  { id: 'cor-stairs',   a: 'corridor',b: 'stairs',   at: { x: 5.6, z: 4.9 }, dir: 's', stairs: true },
   { id: 'cor-child',    a: 'corridor',b: 'childroom',at: { x: 2.0, z: 3.4 }, dir: 'n' },
   { id: 'cor-parents',  a: 'corridor',b: 'parents',  at: { x: 6.2, z: 3.4 }, dir: 'n' },
   { id: 'cor-bath',     a: 'corridor',b: 'bath',     at: { x: 7.5, z: 3.4 }, dir: 'n' },
-  { id: 'cor-attic',    a: 'corridor',b: 'attic',    at: { x: 4.2, z: 3.4 }, dir: 'n', lock: 'люк в потолке' },
+  { id: 'cor-attic',    a: 'corridor',b: 'attic',    at: { x: 3.6, z: 3.4 }, dir: 'n', lock: 'люк в потолке', stairs: true },
 ];
 
 /** Окна: свет, вид наружу и место, куда нельзя смотреть. */

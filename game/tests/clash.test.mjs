@@ -10,6 +10,8 @@ import { LAYOUT } from '../src/data/layout.mjs';
 import { PROPS } from '../src/world/props.mjs';
 import { partsOf, PRIMITIVES } from '../src/world/builder.mjs';
 import { roomById } from '../src/sim/graph.mjs';
+import { DOORS } from '../src/data/house.mjs';
+import { entryPoint } from '../src/sim/doors.mjs';
 
 let pass = 0, fail = 0;
 const errs = [];
@@ -165,6 +167,49 @@ t('вещи на мебели действительно стоят на ней'
   ok(bad.length === 0, bad.join('\n    '));
 });
 
+
+// ─────────── в каждой комнате есть место, куда встать из двери ───────────
+
+// Через лестничный марш в лестничной клетке и есть ход: он занимает всю
+// комнату 2×4, и любая дверь на этом этаже открывается прямо на него.
+const PASSABLE = new Set(['stairs/steps']);
+
+t('у каждой двери есть свободное место с обеих сторон', () => {
+  // Жалоба «зашёл в комнату и застрял» — это не про стены, а про то, что
+  // кто-то поставил холодильник ровно в дверном проёме. Сцена ставит
+  // мальчика на 36 см внутрь от двери, и если там стоит мебель, он
+  // оказывается внутри неё. Проверяем каждую дверь с каждой стороны.
+  const bad = [];
+  for (const d of DOORS) {
+    if (!d.b) continue;
+    for (const roomId of [d.a, d.b]) {
+      const room = roomById(roomId);
+      const entry = entryPoint(d, room, 0.36);
+      // Плоское и низкое — не препятствие: ковёр, провисающая ткань. Через
+      // них проходят, и «застрять» в них нельзя. Отдельно — то, что висит
+      // НАД головой (балки чердака стоят от 0.7 м и выше, лестничный марш
+      // перекрывает пролёт): в них тоже не застрянешь, они над мальчиком.
+      // Всё остальное на уровне тела в точке входа — преграда.
+      const hit = [...LAYOUT[roomId].items, ...LAYOUT[roomId].clutter].filter((it) => {
+        // предмет, ЧЕРЕЗ который и есть проход (лестничный марш), — не преграда
+        if (PASSABLE.has(`${roomId}/${it.id}`)) return false;
+        const prop = PROPS[it.prop];
+        if (!prop) return false;
+        const box = propBox(prop, it);
+        if (it.y ?? 0) return false;
+        if (box.y0 > 0.55) return false;               // висит над головой
+        if (box.y1 - box.y0 < 0.12) return false;      // плоское
+        return entry.x > box.x0 - 0.06 && entry.x < box.x1 + 0.06
+          && entry.z > box.z0 - 0.06 && entry.z < box.z1 + 0.06;
+      });
+      if (hit.length) bad.push(`${roomId} у двери ${d.id}: занято (${hit.map((h) => h.id).join(', ')})`);
+      if (entry.x < 0.3 || entry.z < 0.3 || entry.x > room.rect.w - 0.3 || entry.z > room.rect.d - 0.3) {
+        bad.push(`${roomId} у двери ${d.id}: вход в стене (${entry.x.toFixed(2)}, ${entry.z.toFixed(2)})`);
+      }
+    }
+  }
+  ok(bad.length === 0, bad.join('; '));
+});
 console.log('');
 if (fail) {
   console.log(`✗ ПРОВАЛЕНО: ${fail}, пройдено: ${pass}\n`);

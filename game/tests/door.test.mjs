@@ -320,6 +320,54 @@ t('пройдя порог, комнату меняем ровно один ра
   ok(crossings === 1, `переходов ${crossings} вместо одного`);
 });
 
+// ─────────── сквозная проверка: каждая дверь ведёт в свою комнату ───────────
+
+t('из каждой комнаты переход по двери ставит мальчика в СОСЕДНЮЮ комнату', () => {
+  // Жалоба «все двери вели обратно в коридор» — это не про геометрию стены,
+  // а про то, КУДА попадаешь. Поэтому проверяем весь путь до конца: точка
+  // входа в новой комнате должна быть внутри неё и влезать в её габариты.
+  const bad = [];
+  for (const d of DOORS) {
+    if (!d.b) continue;
+    for (const [fromId, toId] of [[d.a, d.b], [d.b, d.a]]) {
+      const to = roomById(toId);
+      const entry = entryPoint(d, to, 0.36);
+      const inside = entry.x > 0.2 && entry.z > 0.2
+        && entry.x < to.rect.w - 0.2 && entry.z < to.rect.d - 0.2;
+      if (!inside) bad.push(`${d.id} ${fromId}→${toId}: вход (${entry.x.toFixed(2)}, ${entry.z.toFixed(2)}) вне комнаты`);
+      else if (!fits(entry, to.rect, [], [])) bad.push(`${d.id} ${fromId}→${toId}: вход упирается в стену`);
+    }
+  }
+  ok(bad.length === 0, bad.join('; '));
+});
+
+t('до каждой двери можно дойти и перешагнуть порог', () => {
+  // Вторая половина той же жалобы: дверь есть, но к ней не подойти — тоже
+  // «дверь не работает». Идём от середины комнаты прямо в проём.
+  const bad = [];
+  const dirOf = { n: { x: 0, z: -1 }, s: { x: 0, z: 1 }, w: { x: -1, z: 0 }, e: { x: 1, z: 0 } };
+  for (const d of DOORS) {
+    if (!d.b || d.stairs) continue;
+    for (const from of [roomById(d.a), roomById(d.b)]) {
+      const op = doorOpening(d, from);
+      if (!op) continue;
+      const mid = (op.from + op.to) / 2;
+      const start = {
+        n: { x: mid, z: 1.2 }, s: { x: mid, z: from.rect.d - 1.2 },
+        w: { x: 1.2, z: mid }, e: { x: from.rect.w - 1.2, z: mid },
+      }[op.side];
+      let pos = start;
+      let crossed = false;
+      for (let i = 0; i < 240; i++) {
+        pos = step(pos, dirOf[op.side], 1.0, 1 / 60, from.rect, [], [op]).pos;
+        if (crossedThreshold(pos, from.rect, [op])) { crossed = true; break; }
+      }
+      if (!crossed) bad.push(`${d.id} из ${from.id}: не дошёл (${pos.x.toFixed(2)}, ${pos.z.toFixed(2)})`);
+    }
+  }
+  ok(bad.length === 0, bad.join('; '));
+});
+
 console.log('');
 if (fail) {
   console.log(`✗ ПРОВАЛЕНО: ${fail}, пройдено: ${pass}\n`);

@@ -101,9 +101,11 @@ t('HUD не закрывает экран от свайпа', () => {
   ok(!/\.hud > \* \{ pointer-events: auto; \}/.test(css), 'вернулось «весь HUD ловит касания»');
 });
 
-t('тап = «слушать», свайп = камера, и они не путаются', () => {
-  ok(SWIPE.tapMaxDist <= 12, `тап засчитывается после ${SWIPE.tapMaxDist} px сдвига`);
-  ok(SWIPE.tapMaxMs <= 260, `тап засчитывается за ${SWIPE.tapMaxMs} мс`);
+t('касание сцены ничего не включает само', () => {
+  // Было: короткий тап где угодно = «слушать». Игрок промахивался мимо кнопки,
+  // касался экрана — и включался режим. Жалоба: «нажимаю куда-то — включается
+  // слушать». Никаких скрытых действий от касания сцены быть не должно.
+  ok(!/onTap/.test(sticks), 'в Sticks снова есть onTap — касание включает действие');
   ok(SWIPE.maxPerMove <= 0.3, 'резкий рывок повернёт камеру на пол-оборота');
   ok(SWIPE.sensitivity > 0.002 && SWIPE.sensitivity < 0.008,
     `чувствительность ${SWIPE.sensitivity} — либо не повернуть, либо не удержать`);
@@ -181,6 +183,19 @@ t('service worker зарегистрирован и знает все модул
     .matchAll(/from '\.\/([^']+\.mjs)'/g)].map((m) => m[1]);
   const missing = mods.filter((m) => !sw.includes(`'./src/${m}'`));
   ok(missing.length === 0, `в офлайн-кэше нет модулей: ${missing.join(', ')}`);
+});
+
+t('свайп вправо уводит взгляд вправо, а не наоборот', () => {
+  // Жалоба «двигаю влево — в итоге право». Проверяем не комментарий, а знак:
+  // повторяем формулу из Scene3D.rotate и смотрим, куда смотрит камера.
+  const scene = readFileSync(new URL('../src/render/scene3d.mjs', import.meta.url), 'utf8');
+  const m = /rotate\(deltaYaw[^)]*\)\s*\{([\s\S]*?)\n  \}/.exec(scene);
+  ok(m, 'не нашёл rotate() — тест не может проверить знак');
+  const body = m[1];
+  ok(/this\.yaw\s*=\s*wrapAngle\(this\.yaw\s*-\s*deltaYaw\)/.test(body),
+    'yaw прибавляется: свайп вправо уведёт взгляд ВЛЕВО');
+  ok(/this\.pitch\s*=\s*clamp\(this\.pitch\s*-\s*deltaPitch/.test(body),
+    'наклон инвертирован: палец вниз поднимет взгляд');
 });
 
 console.log('');

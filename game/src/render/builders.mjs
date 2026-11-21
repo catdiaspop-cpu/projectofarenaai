@@ -138,57 +138,105 @@ function nightBehind(glass, wall, cx, w, bottom, h) {
  */
 function addWallTrim(parts, wall, spans, look) {
   const T = WALL_T;
+
+  // ── фаска ──
+  // B добавляет фаску по всем рёбрам (44 треугольника), BX — плоский (12).
+  // Плинтус, поясок и карниз — профильные детали, на них фаска и есть форма.
+  // Полосы обоев — плоские, фаска им не нужна: на 24 полосах это 800
+  // лишних треугольников.
+  const along = (ww, hh, yy, mat, depth, chamfer = true) => {
+    const f = chamfer ? B : BX;
+    if (wall.axis === 'x') parts.push(f(ww, hh, depth ?? T, wall.from + ww / 2, yy, wall.at, mat));
+    else parts.push(f(depth ?? T, hh, ww, wall.at, yy, wall.from + ww / 2, mat));
+  };
+
   // на чердаке и в подвале стены «как есть»: одна панель на всех — это и есть
   // «все комнаты одинаковые»
   if (look.flatWalls) {
     for (const sp of spans) {
       const w = sp.to - sp.from;
       if (w < 0.05) continue;
-      const cx = sp.from + w / 2;
-      if (wall.axis === 'x') parts.push(BX(w, 0.07, T + 0.03, cx, HEIGHTS.floorHeight - 0.07, wall.at, look.trim));
-      else parts.push(BX(T + 0.03, 0.07, w, wall.at, HEIGHTS.floorHeight - 0.07, cx, look.trim));
+      wall.from = sp.from;
+      along(w, 0.07, HEIGHTS.floorHeight - 0.07, look.trim, T + 0.03, false);
     }
     return;
   }
-  const wainscotH = 0.92;      // высота нижней панели: до пояса взрослому
-  const railH = 0.05;
-  const corniceH = 0.09;
+
+  // Профиль стены снизу вверх:
+  //   0 … 0.10  плинтус (глубже всего — он и перекрывает стык пола)
+  //   0.10 … 0.98 панель с филёнками
+  //   0.98 … 1.03 поясок
+  //   1.03 … 2.92 обои с полосами и бордюром
+  //   2.92 … 3.10 карниз (два хода)
+  const BASE = 0.10, WAIN = 0.98, RAIL = 0.05, CORN = 0.18;
+  const WALL_TOP = HEIGHTS.floorHeight;
 
   for (const sp of spans) {
     const w = sp.to - sp.from;
     if (w < 0.05) continue;
-    const cx = sp.from + w / 2;
+    wall.from = sp.from;
 
-    // thin — плоские элементы (полосы обоев, поясок, карниз): на них фаска
-    // не видна, а стоит 44 треугольника вместо 12. Панель — с фаской.
-    const put = (ww, hh, yy, mat, depth, thin = false) => {
-      const f = thin ? BX : B;
-      if (wall.axis === 'x') parts.push(f(ww, hh, depth ?? T, cx, yy, wall.at, mat));
-      else parts.push(f(depth ?? T, hh, ww, wall.at, yy, cx, mat));
-    };
+    // ── плинтус: ОДИН ход, но с выносом и фаской по верхнему ребру.
+    // Два хода (тело + галтель) стоили ещё один бокс на каждый кусок стены,
+    // а на телефоне тень от галтели всё равно не читается: разница видна
+    // только в профиль. Фаска B даёт ту же световую полоску дешевле.
+    along(w, BASE, 0, look.trim, T + 0.055);
 
-    // панель снизу — своя на каждую комнату, выступает на 1.2 см
-    // (плинтус глубже, иначе две плоскости совпадают и мерцают)
-    put(w, wainscotH, 0, look.wainscot ?? 'wainscot', T + 0.012);
-    // поясок между панелью и обоями
-    put(w, railH, wainscotH, look.trim, T + 0.035, true);
-    // карниз под потолком
-    put(w, corniceH, HEIGHTS.floorHeight - corniceH, look.trim, T + 0.03, true);
+    // ── панель ──
+    along(w, WAIN - BASE, BASE, look.wainscot ?? 'wainscot', T + 0.02);
 
-    // обои: тонкие вертикальные полосы через 0.42 м. Только в верхней части,
-    // выше панели, и только если стена длинная — иначе это шум.
-    if (w > 0.6) {
-      const stripe = 0.11;
-      const step = 0.42;
-      const y0 = wainscotH + railH;
-      const h = HEIGHTS.floorHeight - corniceH - y0;
-      if (h > 0.2) {
-        for (let x = sp.from + 0.28; x < sp.to - 0.2; x += step) {
-          if (wall.axis === 'x') parts.push(BX(stripe, h, T + 0.012, x, y0, wall.at, look.stripe ?? look.wall));
-          else parts.push(BX(T + 0.012, h, stripe, wall.at, y0, x, look.stripe ?? look.wall));
-        }
+    // ── филёнки ──
+    // Филёнка — это ВЫСТУП, а не утопленная рамка. Сначала я сделал рамку
+    // внутри панели (глубина панели + 6 мм), но панель — сплошная коробка:
+    // рамка оказалась ВНУТРИ неё и не рисовалась вообще. Внешне «редизайн»
+    // был неотличим от плоской стены. Теперь поле выступает на 2.5 см за
+    // панель: свет ложится на его боковые грани, и появляется тень по краю —
+    // то, что читается как филёнка.
+    const panelTop = WAIN - 0.15;
+    const panelBot = BASE + 0.13;
+    const ph = panelTop - panelBot;
+    if (ph > 0.12 && w > 0.6) {
+      const gap = 0.14;
+      const cellW = 1.02;
+      const n = Math.max(1, Math.floor((w - gap * 2) / cellW));
+      const total = (w - gap * 2) / n;
+      for (let i = 0; i < n; i++) {
+        const cw = total - 0.16;
+        if (cw < 0.16) continue;
+        const cx = sp.from + gap + i * total + total / 2;
+        const depth = T + 0.055;
+        // поле светлее панели: та же краска в один тон темнее не видна в
+        // сумерках, а игра ночная. Светлое поле на тёмной панели — это уже
+        // рисунок стены, а не «покрашено снизу».
+        const mat = look.fillet ?? look.trim;
+        if (wall.axis === 'x') parts.push(B(cw, ph, depth, cx, panelBot, wall.at, mat));
+        else parts.push(B(depth, ph, cw, wall.at, panelBot, cx, mat));
       }
     }
+
+    // ── поясок: полка с выносом, отделяющая панель от обоев
+    along(w, RAIL, WAIN, look.trim, T + 0.055);
+
+    // ── обои: полосы + бордюр под карнизом
+    const y0 = WAIN + RAIL + 0.016;
+    const yTop = WALL_TOP - CORN;
+    const h = yTop - y0;
+    if (h > 0.2 && w > 0.32) {
+      const stripe = 0.07;
+      const step = 0.62;
+      for (let x = sp.from + 0.15; x < sp.to - stripe - 0.08; x += step) {
+        if (wall.axis === 'x') parts.push(BX(stripe, h, T + 0.008, x, y0, wall.at, look.stripe ?? look.wall));
+        else parts.push(BX(T + 0.008, h, stripe, wall.at, y0, x, look.stripe ?? look.wall));
+      }
+      // бордюр: узкая полоса другого цвета в 12 см под карнизом — верхняя
+      // граница обоев, без неё полосы обрываются в воздухе
+      along(w, 0.075, yTop - 0.075, look.stripe ?? look.wall, T + 0.014, false);
+    }
+
+    // ── карниз: узкий жёлоб + широкий вынос. Карниз на потолке даёт
+    // горизонталь, по которой видно, что комната — коробка, а не тоннель.
+    along(w, CORN - 0.05, WALL_TOP - CORN, look.trim, T + 0.048);
+    along(w, 0.05, WALL_TOP - 0.05, look.trim, T + 0.10, false);
   }
 }
 
@@ -222,8 +270,8 @@ export function roomShellParts(room, { bare = false } = {}) {
         const w = s.to - s.from;
         if (w < 0.01) continue;
         const cx = s.from + w / 2;
-        if (wall.axis === 'x') parts.push(B(w, HEIGHTS.floorHeight, WALL_T, cx, 0, wall.at, look.wall));
-        else parts.push(B(WALL_T, HEIGHTS.floorHeight, w, wall.at, 0, cx, look.wall));
+        if (wall.axis === 'x') parts.push(BX(w, HEIGHTS.floorHeight, WALL_T, cx, 0, wall.at, look.wall));
+        else parts.push(BX(WALL_T, HEIGHTS.floorHeight, w, wall.at, 0, cx, look.wall));
       }
       for (const o of ops) {
         const w = o.to - o.from;

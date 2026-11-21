@@ -7,6 +7,7 @@ import { PROPS } from '../src/world/props.mjs';
 import { boundsOf, partsOf, triangleCount, buildParts } from '../src/world/builder.mjs';
 import { findPath, longestRoute, totalArea, routeToPoint, neighbours, roomById, floors } from '../src/sim/graph.mjs';
 import { PARTS, BODY, pose, blinkAmount } from '../src/world/character.mjs';
+import { openingsFor } from '../src/render/builders.mjs';
 
 let pass = 0, fail = 0;
 const errors = [];
@@ -379,6 +380,80 @@ t('моргание происходит периодически', () => {
   ok(blinks >= 3 && blinks <= 7, `за 20 секунд моргнул ${blinks} раз`);
 });
 
+// ─────────────── двери: каждая ведёт в свою комнату ───────────────
+
+t('точка двери лежит на стене ОБЕИХ комнат', () => {
+  // До этой проверки «дверь на стене» означала только «петля внутри
+  // комнаты», и четыре двери с точкой посреди помещения проходили все 21
+  // набор. В игре это выглядело так: заходишь в коридор, открываешь дверь —
+  // и оказываешься опять в коридоре.
+  const near = (a, b) => Math.abs(a - b) < 0.05;
+  const bad = [];
+  for (const d of DOORS) {
+    // у двери во двор вторая сторона — не комната; у хода между этажами
+    // (лестница, люк) точка задана в первой комнате, вторая — другой этаж
+    const ids = d.stairs || !d.b ? [d.a] : [d.a, d.b];
+    for (const id of ids) {
+      const r = roomById(id);
+      if (!r?.rect) { bad.push(`${d.id}: нет комнаты ${id}`); continue; }
+      const lx = d.at.x - r.rect.x;
+      const lz = d.at.z - r.rect.z;
+      const onWall = near(lx, 0) || near(lx, r.rect.w) || near(lz, 0) || near(lz, r.rect.d);
+      const inside = lx > -0.05 && lx < r.rect.w + 0.05 && lz > -0.05 && lz < r.rect.d + 0.05;
+      if (d.stairs) { if (!inside) bad.push(`${d.id}/${id}: ход вне комнаты`); continue; }
+      if (!onWall) bad.push(`${d.id}/${id}: точка (${lx.toFixed(2)}, ${lz.toFixed(2)}) не на стене`);
+    }
+  }
+  ok(bad.length === 0, bad.join('; '));
+});
+
+t('ни одна дверь не ведёт обратно в ту же комнату', () => {
+  // Прямая проверка жалобы «все двери вели обратно в коридор»: если у двери
+  // обе стороны — коридор (или один и тот же id), из неё никогда не выйти.
+  const bad = DOORS.filter((d) => d.a === d.b).map((d) => d.id);
+  ok(bad.length === 0, `дверь в себя: ${bad.join(', ')}`);
+  // и вторая половина: у каждой двери есть проём хотя бы в одной комнате
+  const noOpening = [];
+  for (const r of ROOMS) {
+    if (r.kind === 'yard') continue;
+    const sides = openingsFor(r);
+    for (const d of DOORS) {
+      if (d.a !== r.id && d.b !== r.id) continue;
+      const found = Object.values(sides).flat().some((o) => o.kind === 'door' && o.door === d.id);
+      const isHatch = d.lock === 'люк в потолке' || d.lock === 'люк в полу';
+      // у люка проём не в стене, а вертикальный (side: 'any'), поэтому в
+      // openingsFor его нет — это не ошибка
+      if (!found && !isHatch && !d.stairs) noOpening.push(`${d.id}/${r.id}`);
+    }
+  }
+  ok(noOpening.length === 0, `дверь без проёма: ${noOpening.join(', ')}`);
+});
+
+t('в каждую комнату есть дверь с исправной створкой', () => {
+  // Лестница между этажами и люк створки не имеют — это ход. Но если комнату
+  // соединяет с домом ТОЛЬКО такой ход, попасть в неё можно лишь «телепортом»,
+  // а игрок ждёт дверь, которая открывается. Такая комната должна иметь хотя
+  // бы одну обычную дверь.
+  const bad = [];
+  // Подвал и чердак — исключение: они ПОД и НАД домом, вход туда только
+  // люком, иначе он был бы дверью в пустоту на одном этаже с домом.
+  const byHatchOnly = new Set(['basement', 'attic']);
+  for (const r of ROOMS) {
+    if (r.kind === 'yard' || byHatchOnly.has(r.id)) continue;
+    const own = DOORS.filter((d) => d.a === r.id || d.b === r.id);
+    // «заперто на время» — это нормальная дверь: у неё есть створка, и она
+    // открывается по правилу из locks.mjs. Не дверь — это люк/лестница.
+    const doors = own.filter((d) => !d.stairs && !d.lock?.startsWith('люк'));
+    const hatch = own.filter((d) => d.lock === 'люк в потолке' || d.lock === 'люк в полу');
+    if (!doors.length) {
+      bad.push(hatch.length
+        ? `${r.id}: только люк, двери нет`
+        : `${r.id}: вообще нет двери`);
+    }
+  }
+  ok(bad.length === 0, bad.join('; '));
+});
+
 // ─────────────────────────── ИТОГ ───────────────────────────
 console.log('');
 if (fail) {
@@ -388,3 +463,4 @@ if (fail) {
 } else {
   console.log(`✓ все проверки пройдены: ${pass}`);
 }
+
