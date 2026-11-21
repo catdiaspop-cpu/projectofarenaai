@@ -12,7 +12,7 @@ import { ROOMS, DOORS, POINTS, SPAWN, HEIGHTS, LIGHTS } from '../data/house.mjs'
 import { LAYOUT } from '../data/layout.mjs';
 import { PROPS } from '../world/props.mjs';
 import { findPath, roomById, routeToPoint, SPEED } from '../sim/graph.mjs';
-import { planWalk, stepAlong } from './input.mjs';
+import { stepAlong } from './input.mjs';
 
 /** Фазы суток. Утро, вечер и ночь — по гейм-дизайну. */
 export const PHASE = {
@@ -38,6 +38,8 @@ export class World {
     this.facing = SPAWN.child.facing;
     this.entered = new Set(['childroom']);
     this.doorFlags = {};          // открытые люки и прочее
+    this.pendingDoor = null;      // { doorId, target } — дверь открывается, ждём прохода
+    this.travelling = false;      // мальчик идёт сквозь порог
     this.scales = { fear: 12, sleep: 20, hunger: 55, bladder: 30 };
     this.lightOn = { 'child-nightlight': true };
     this.path = null;
@@ -111,8 +113,9 @@ export class World {
   /** Идти к точке комнаты (локальные координаты). */
   walkTo(x, z, mode = 'sneak') {
     if (!this.inBounds(x, z)) return false;
-    const path = planWalk(this.pos, { x, z }, this.obstacles());
-    this.path = path;
+    // Прямой отрезок: обход мебели делает movement.mjs на каждом кадре,
+    // а заранее проложенный путь больше не нужен.
+    this.path = { points: [{ x: this.pos.x, z: this.pos.z }, { x, z }] };
     this.walkProgress = { i: 0, x: this.pos.x, z: this.pos.z };
     this.mode = mode === 'run' ? 'run' : mode === 'normal' ? 'walk' : 'sneak';
     this.speed = SPEED[this.mode] ?? SPEED.normal;
@@ -150,6 +153,25 @@ export class World {
     this.mode = 'idle';
     this.entered.add(roomId);
     this.emit('room', { room: roomId, from, seconds: path.seconds });
+    return true;
+  }
+
+  /**
+   * Прямой вход в комнату с готовой точкой появления.
+   * Нужен настоящим дверям: мальчик уже прошёл порог, и переставлять его
+   * куда-то в середину комнаты нельзя — он должен оказаться у той же двери.
+   */
+  goToRoomDirect(roomId, entry) {
+    const from = this.room;
+    if (!roomId) return false;
+    this.room = roomId;
+    this.pos = { x: entry.x, z: entry.z };
+    this.path = null;
+    this.walkProgress = null;
+    this.mode = 'idle';
+    this.travelling = false;
+    this.entered.add(roomId);
+    this.emit('room', { room: roomId, from, seconds: 0 });
     return true;
   }
 

@@ -1,170 +1,267 @@
-// Экранные стики и кнопки действий.
+// Управление: один стик и свайп.
 //
-// Реализация: DOM-элементы с transform, а не canvas. Причины:
-//   * не перерисовывается каждый кадр (0 работы GPU);
-//   * работает поверх и 2D-карты, и 3D-сцены;
-//   * масштабируется системным DPI бесплатно;
-//   * касания не конфликтуют с canvas сцены.
+// Что изменилось и почему:
+//   * правого стика больше нет. Камера — СВАЙП по правой половине экрана:
+//     палец ведёт, камера поворачивается на величину сдвига. Это точнее стика:
+//     стик нужно «держать», а свайп заканчивается вместе с движением пальца.
+//   * кнопки больше не висят поверх игры постоянно. Они появляются при касании
+//     в нижней части экрана и уходят через 2.5 с бездействия. Панель узкая
+//     (48 px), в один столбик у правого края — под большой палец, а не
+//     «на пол экрана».
+//   * «действие» — крупнее остальных и появляется только когда рядом что-то
+//     есть (дверь, предмет). Нет смысла держать кнопку, которая ничего не делает.
 //
-// Зона захвата стика — вся нижняя половина экрана слева/справа,
-// поэтому палец не обязан попадать точно в кружок.
+// Зона левого стика — левая нижняя половина, зона свайпа — правая нижняя
+// половина. Верхняя половина экрана остаётся для HUD и будущих предметов.
 
 import { Stick } from '../core/joystick.mjs';
 
+const SWIPE = {
+  sensitivity: 0.0042,     // рад на пиксель: 240 px через экран ≈ 1 рад
+  maxPerMove: 0.28,        // чтобы резкий рывок не «телепортировал» камеру
+  pitchLimit: [-0.95, 0.85],
+  tapMaxDist: 12,          // меньше — это тап, а не свайп
+  tapMaxMs: 220,
+};
+
+const BUTTONS = [
+  { act: 'torch', label: 'фонарь' },
+  { act: 'crouch', label: 'присесть' },
+  { act: 'listen', label: 'слушать' },
+  { act: 'use', label: 'действие', main: true },
+  { act: 'map', label: 'карта' },
+];
+
 export class Sticks {
-  constructor(root, { onButton } = {}) {
+  constructor(root, { onButton, onTap } = {}) {
     this.root = root;
     this.onButton = onButton;
+    this.onTap = onTap;
     this.move = new Stick();
-    this.look = new Stick();
+    this.look = { dx: 0, dy: 0, dragging: false, id: null, x0: 0, y0: 0, moved: 0, t0: 0 };
     this.sprint = false;
+    this.crouch = false;
+    this.torch = false;
+    this.idleTimer = 0;
+    this.buttonsVisible = false;
 
-    // ВАЖНО: зоны захвата и видимые кружки — братья, а не родитель и ребёнок.
-    // Иначе `left: x px` считается от зоны (пол-экрана), а палец — от всего
-    // экрана, и кружок уезжает вбок на четверть экрана.
+    // Камера свайпом — по ВСЕМУ экрану, кроме нижнего левого угла под стик.
+    // Раньше свайп работал только по правой половине, и повернуть взгляд,
+    // не отпуская стик, было нельзя. Правая половина уходит вперёд по слоям.
     root.innerHTML = `
       <div class="stick-zone stick-zone-left" data-zone="move"></div>
-      <div class="stick-zone stick-zone-right" data-zone="look"></div>
+      <div class="look-zone" data-zone="look"></div>
       <div class="stick stick-move" data-stick="move">
         <div class="stick-base"></div>
         <div class="stick-knob"></div>
-        <div class="stick-label">идти</div>
       </div>
-      <div class="stick stick-look" data-stick="look">
-        <div class="stick-base"></div>
-        <div class="stick-knob"></div>
-        <div class="stick-label">смотреть</div>
-      </div>
-      <div class="action-buttons">
-        <button class="act" data-act="torch" aria-label="Фонарь"><span>фонарь</span></button>
-        <button class="act" data-act="crouch" aria-label="Присесть"><span>присесть</span></button>
-        <button class="act" data-act="listen" aria-label="Слушать"><span>слушать</span></button>
-        <button class="act act-main" data-act="use" aria-label="Действие"><span>действие</span></button>
-        <button class="act act-wide" data-act="sprint" aria-label="Бежать"><span>бежать</span></button>
-        <button class="act act-wide" data-act="map" aria-label="Карта"><span>карта</span></button>
+      <div class="action-buttons" data-buttons>
+        ${BUTTONS.map((b) => `
+          <button class="act${b.main ? ' act-main' : ''}" data-act="${b.act}" aria-label="${b.label}">
+            <span>${b.label}</span>
+          </button>`).join('')}
       </div>
     `;
 
     this.el = {
       moveStick: root.querySelector('[data-stick="move"]'),
-      lookStick: root.querySelector('[data-stick="look"]'),
       moveKnob: root.querySelector('[data-stick="move"] .stick-knob'),
-      lookKnob: root.querySelector('[data-stick="look"] .stick-knob'),
-      moveBase: root.querySelector('[data-stick="move"] .stick-base'),
-      lookBase: root.querySelector('[data-stick="look"] .stick-base'),
-      moveLabel: root.querySelector('[data-stick="move"] .stick-label'),
+      buttons: root.querySelector('[data-buttons]'),
     };
 
-    this.bindZones();
+    this.bindMove();
+    this.bindLook();
     this.bindButtons();
   }
 
-  /** Зона левой половины → стик движения, правой → камера. */
-  bindZones() {
-    const zones = this.root.querySelectorAll('[data-zone]');
-    for (const zone of zones) {
-      const which = zone.dataset.zone;
-      const stick = which === 'move' ? this.move : this.look;
-      const kEl = which === 'move' ? this.el.moveKnob : this.el.lookKnob;
-      const bEl = which === 'move' ? this.el.moveBase : this.el.lookBase;
-      const sEl = which === 'move' ? this.el.moveStick : this.el.lookStick;
+  // ─────────────────────────── движение ───────────────────────────
 
-      const start = (e) => {
-        // мультитач: у каждого стика свой pointerId, второй стик не перебивает первый
-        if (stick.active) return;
-        zone.setPointerCapture?.(e.pointerId);
-        const rect = this.root.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
-        stick.down(e.pointerId, x, y);
-        sEl.classList.add('active');
-        sEl.style.left = `${x}px`;
-        sEl.style.top = `${y}px`;
-        bEl.style.transform = 'translate(-50%, -50%) scale(1)';
-        e.preventDefault();
-      };
+  bindMove() {
+    const zone = this.root.querySelector('[data-zone="move"]');
+    const stick = this.move;
 
-      const move = (e) => {
-        if (!stick.active || stick.id !== e.pointerId) return;
-        const rect = this.root.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
-        stick.move(e.pointerId, x, y);
-        // база могла уехать за пальцем
-        sEl.style.left = `${stick.base.x}px`;
-        sEl.style.top = `${stick.base.y}px`;
-        kEl.style.transform = `translate(calc(-50% + ${stick.knob.x}px), calc(-50% + ${stick.knob.y}px))`;
-        e.preventDefault();
-      };
+    zone.addEventListener('pointerdown', (e) => {
+      if (stick.active) return;
+      zone.setPointerCapture?.(e.pointerId);
+      const rect = this.root.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      stick.down(e.pointerId, x, y);
+      this.el.moveStick.classList.add('active');
+      this.el.moveStick.style.left = `${x}px`;
+      this.el.moveStick.style.top = `${y}px`;
+      this.el.moveKnob.style.transform = 'translate(-50%, -50%)';
+      this.wake();
+      e.preventDefault();
+    }, { passive: false });
 
-      const end = (e) => {
-        if (!stick.active || stick.id !== e.pointerId) return;
-        stick.up(e.pointerId);
-        sEl.classList.remove('active');
-        kEl.style.transform = 'translate(-50%, -50%)';
-      };
+    zone.addEventListener('pointermove', (e) => {
+      if (!stick.active || stick.id !== e.pointerId) return;
+      const rect = this.root.getBoundingClientRect();
+      stick.move(e.pointerId, e.clientX - rect.left, e.clientY - rect.top);
+      this.el.moveStick.style.left = `${stick.base.x}px`;
+      this.el.moveStick.style.top = `${stick.base.y}px`;
+      this.el.moveKnob.style.transform =
+        `translate(calc(-50% + ${stick.knob.x}px), calc(-50% + ${stick.knob.y}px))`;
+      this.wake();
+      e.preventDefault();
+    }, { passive: false });
 
-      zone.addEventListener('pointerdown', start, { passive: false });
-      zone.addEventListener('pointermove', move, { passive: false });
-      zone.addEventListener('pointerup', end);
-      zone.addEventListener('pointercancel', end);
-      zone.addEventListener('pointerleave', end);
-    }
+    const end = (e) => {
+      if (!stick.active || stick.id !== e.pointerId) return;
+      stick.up(e.pointerId);
+      this.el.moveStick.classList.remove('active');
+      this.el.moveKnob.style.transform = 'translate(-50%, -50%)';
+    };
+    zone.addEventListener('pointerup', end);
+    zone.addEventListener('pointercancel', end);
+    zone.addEventListener('pointerleave', end);
   }
 
+  // ─────────────────────────── камера свайпом ───────────────────────────
+
+  bindLook() {
+    const zone = this.root.querySelector('[data-zone="look"]');
+    const L = this.look;
+
+    zone.addEventListener('pointerdown', (e) => {
+      if (L.dragging) return;
+      zone.setPointerCapture?.(e.pointerId);
+      const rect = this.root.getBoundingClientRect();
+      L.dragging = true;
+      L.id = e.pointerId;
+      L.x0 = e.clientX - rect.left;
+      L.y0 = e.clientY - rect.top;
+      L.x = L.x0;
+      L.y = L.y0;
+      L.moved = 0;
+      L.t0 = performance.now();
+      this.wake();
+      e.preventDefault();
+    }, { passive: false });
+
+    zone.addEventListener('pointermove', (e) => {
+      if (!L.dragging || L.id !== e.pointerId) return;
+      const rect = this.root.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      let dx = x - L.x;
+      let dy = y - L.y;
+      L.moved += Math.hypot(x - L.x, y - L.y);
+      L.x = x;
+      L.y = y;
+
+      // ограничение на один кадр: резкий рывок не должен «телепортировать»
+      const cap = SWIPE.maxPerMove;
+      dx = Math.max(-cap / SWIPE.sensitivity, Math.min(cap / SWIPE.sensitivity, dx));
+      dy = Math.max(-cap / SWIPE.sensitivity, Math.min(cap / SWIPE.sensitivity, dy));
+
+      L.dx += dx * SWIPE.sensitivity;
+      L.dy += dy * SWIPE.sensitivity;
+      this.wake();
+      e.preventDefault();
+    }, { passive: false });
+
+    const end = (e) => {
+      if (!L.dragging || L.id !== e.pointerId) return;
+      const dt = performance.now() - L.t0;
+      // короткое касание без сдвига — это тап: «слушать»
+      if (L.moved < SWIPE.tapMaxDist && dt < SWIPE.tapMaxMs) this.onTap?.();
+      L.dragging = false;
+      L.id = null;
+    };
+    zone.addEventListener('pointerup', end);
+    zone.addEventListener('pointercancel', end);
+    zone.addEventListener('pointerleave', end);
+  }
+
+  // ─────────────────────────── кнопки ───────────────────────────
+
   bindButtons() {
-    this.root.querySelector('.action-buttons').addEventListener('click', (e) => {
+    this.el.buttons.addEventListener('click', (e) => {
       const b = e.target.closest('[data-act]');
       if (!b) return;
-      const act = b.dataset.act;
-      if (act === 'sprint') {
-        this.sprint = !this.sprint;
-        b.classList.toggle('on', this.sprint);
-        return;
-      }
-      this.onButton?.(act);
+      this.onButton?.(b.dataset.act);
+      this.wake();
     });
   }
 
-  /** Сглаживание стиков — раз в кадр. */
+  /** Показать кнопки и продлить их жизнь. */
+  wake() {
+    this.idleTimer = 2.5;
+    if (!this.buttonsVisible) {
+      this.buttonsVisible = true;
+      this.el.buttons.classList.add('visible');
+    }
+  }
+
+  hideButtons() {
+    this.buttonsVisible = false;
+    this.el.buttons.classList.remove('visible');
+  }
+
+  /** Вызвать из кадра: гасит кнопки по бездействию и сбрасывает свайп в поворот. */
   update(dt) {
     this.move.update(dt);
-    this.look.update(dt);
-    this.el.moveKnob.style.transform = `translate(calc(-50% + ${this.move.knob.x}px), calc(-50% + ${this.move.knob.y}px))`;
-    if (!this.look.active) this.el.lookKnob.style.transform = 'translate(-50%, -50%)';
+
+    if (this.buttonsVisible) {
+      this.idleTimer -= dt;
+      if (this.idleTimer <= 0 && !this.look.dragging && !this.move.active) this.hideButtons();
+    }
+
+    this.el.moveKnob.style.transform =
+      `translate(calc(-50% + ${this.move.knob.x}px), calc(-50% + ${this.move.knob.y}px))`;
   }
 
-  /** Сброс при смене комнаты и т.п. */
+  /** Снять накопленный поворот камеры: забирает Scene3D каждый кадр. */
+  takeLook() {
+    const d = { yaw: this.look.dx, pitch: this.look.dy };
+    this.look.dx = 0;
+    this.look.dy = 0;
+    return d;
+  }
+
+  /**
+   * Кнопка «действие»: показывать только когда рядом есть что делать.
+   * @param {'door'|'item'|null} what
+   */
+  setAction(what) {
+    const btn = this.root.querySelector('[data-act="use"]');
+    if (!btn) return;
+    btn.classList.toggle('near-door', what === 'door');
+    btn.classList.toggle('ready', what === 'item');
+    if (what) this.wake();
+  }
+
   reset() {
     this.move.up();
-    this.look.up();
+    this.look.dragging = false;
+    this.look.dx = 0;
+    this.look.dy = 0;
     this.el.moveStick.classList.remove('active');
-    this.el.lookStick.classList.remove('active');
     this.el.moveKnob.style.transform = 'translate(-50%, -50%)';
-    this.el.lookKnob.style.transform = 'translate(-50%, -50%)';
-    // вернуть стики на места по умолчанию (позицию задаёт CSS-класс)
     this.el.moveStick.style.left = '';
     this.el.moveStick.style.top = '';
-    this.el.lookStick.style.left = '';
-    this.el.lookStick.style.top = '';
   }
 
-  /** Для отладки и тестов: что сейчас нажато. */
   read() {
     return {
       move: { x: this.move.value.x, y: this.move.value.y, mag: Math.hypot(this.move.value.x, this.move.value.y) },
-      look: { x: this.look.value.x, y: this.look.value.y, mag: Math.hypot(this.look.value.x, this.look.value.y) },
+      dragging: this.look.dragging,
       sprint: this.sprint,
-      crouch: this.root.querySelector('[data-act="crouch"]').classList.contains('on'),
+      crouch: this.crouch,
+      torch: this.torch,
     };
   }
 
   setCrouch(on) {
-    this.root.querySelector('[data-act="crouch"]').classList.toggle('on', on);
+    this.crouch = on;
+    this.root.querySelector('[data-act="crouch"]')?.classList.toggle('on', on);
   }
 
   setTorch(on) {
-    this.root.querySelector('[data-act="torch"]').classList.toggle('on', on);
+    this.torch = on;
+    this.root.querySelector('[data-act="torch"]')?.classList.toggle('on', on);
   }
 
   toggleClass(act, cls) {
@@ -172,3 +269,5 @@ export class Sticks {
     if (b) b.classList.toggle(cls, !b.classList.contains(cls));
   }
 }
+
+export { SWIPE, BUTTONS };
