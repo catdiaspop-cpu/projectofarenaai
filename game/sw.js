@@ -5,18 +5,32 @@
 // cache-first + неизменное имя кэша = игрок не видит ни одной правки.
 const CACHE_VERSION = 'dev';
 const CACHE = `nespi-${CACHE_VERSION}`;
+// Полный список модулей. Раньше здесь не было шести файлов (movement, locks,
+// doors, gait, viewmodel, house.mjs) — игра «офлайн» падала на первом же
+// импорте, потому что страницу отдавали из кэша, а модуль за ней — нет.
 const ASSETS = [
   './', './index.html', './styles.css', './src/main.mjs',
-  './src/core/app.mjs', './src/core/input.mjs', './src/core/joystick.mjs',
+  './src/core/app.mjs', './src/core/input.mjs', './src/core/joystick.mjs', './src/core/movement.mjs',
   './src/data/house.mjs', './src/data/layout.mjs', './src/data/palette.mjs', './src/data/rooms.mjs',
-  './src/world/props.mjs', './src/world/character.mjs', './src/world/builder.mjs',
-  './src/sim/graph.mjs', './src/render/mesher.mjs', './src/render/character.mjs',
-  './src/render/builders.mjs', './src/render/scene3d.mjs', './src/render/house-preview.mjs',
-  './src/ui/hud.mjs', './src/ui/sticks.mjs', './vendor/three/three.min.js', './manifest.webmanifest', './icon.svg',
+  './src/world/props.mjs', './src/world/character.mjs', './src/world/builder.mjs', './src/world/gait.mjs',
+  './src/sim/graph.mjs', './src/sim/locks.mjs', './src/sim/doors.mjs',
+  './src/render/mesher.mjs', './src/render/character.mjs', './src/render/builders.mjs',
+  './src/render/scene3d.mjs', './src/render/house-preview.mjs', './src/render/viewmodel.mjs',
+  './src/ui/hud.mjs', './src/ui/sticks.mjs',
+  './vendor/three/three.min.js', './manifest.webmanifest', './icon.svg',
 ];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+  // addAll падает целиком, если ОДИН файл не найден: обновление не
+  // устанавливалось, телефон продолжал жить на старом кэше. Теперь каждый
+  // файл кладём отдельно, а обязательные (html, main) — строго.
+  e.waitUntil(
+    caches.open(CACHE)
+      .then((c) => Promise.all(ASSETS.map((u) => c.add(u).catch((err) => {
+        console.warn('в кэш не попал', u, err);
+      }))))
+      .then(() => self.skipWaiting()),
+  );
 });
 
 self.addEventListener('activate', (e) => {

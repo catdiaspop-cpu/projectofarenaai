@@ -36,6 +36,7 @@ let torchOn = false;
 let crouch = false;
 let paused = false;
 let sceneLoading = false;
+let sceneLost = false;       // WebGL-контекст отобран телефоном
 let pendingDoor = null;      // { door, target, opening, opened } — дверь открыта, ждём шага
 
 // ─────────────────────────── сцены ───────────────────────────
@@ -61,7 +62,15 @@ function show3d() {
   hud?.toast('дом просыпается…');
   // ленивая загрузка three.js
   import('./render/scene3d.mjs').then(({ Scene3D }) => {
-    scene3d = new Scene3D(sceneCanvas);
+    scene3d = new Scene3D(sceneCanvas, {
+      // телефон отобрал WebGL (переключились в другое приложение) — картинки
+      // больше не будет, но управление и мир остаются. Скажем об этом прямо,
+      // вместо чёрного экрана, на котором «ничего не двигается».
+      onContextLost: () => {
+        sceneLost = true;
+        hud?.toast('телефон отобрал 3D. сверни и вернись — заработает.', 5000);
+      },
+    });
     scene3d.resize(window.innerWidth, window.innerHeight);
     scene3d.load(world.room);
     scene3d.lightState = world.lightOn;
@@ -396,38 +405,74 @@ function frame(now) {
   const dt = Math.min(0.05, (now - lastT) / 1000 || 0.016);
   lastT = now;
 
-  sticks.update(dt);
+  // ── кадр не должен умирать от одного исключения ──
+  // Раньше любая ошибка внутри кадра (WebGL, HUD, дверь) выбрасывала нас из
+  // requestAnimationFrame НАВСЕГДА: картинка застывала, и никакой ввод уже не
+  // помогал — «камера не двигается и человек не идёт». Теперь ошибка
+  // показывает себя в подсказке, а цикл продолжается. Игрок всегда может
+  // управлять, даже если что-то в сцене сломалось.
+  try {
+    sticks.update(dt);
 
-  let travelled = 0;
+    let travelled = 0;
 
-  if (!paused) {
-    world.update(dt);
-    if (mode === '3d') {
-      travelled = applyMovement(dt);
-      updateUseHint();
+    if (!paused) {
+      world.update(dt);
+      if (mode === '3d') {
+        travelled = applyMovement(dt);
+        updateUseHint();
+      }
     }
-  }
 
-  if (mode === '3d' && scene3d) {
-    const stateNow = crouch ? 'sneak' : charState();
-    // Пройденные метры — единственный источник фазы походки: ноги физически
-    // не могут двигаться быстрее или медленнее самого движения.
-    scene3d.setCharacter(world.pos.x, world.pos.z, world.facing, stateNow, torchOn ? 'flashlight' : null, {
-      distance: travelled,
-      mode: stateNow === 'run' ? 'run' : stateNow === 'sneak' ? 'sneak' : 'walk',
-      speed: travelled > 0 ? travelled / Math.max(dt, 1e-3) : 0,
-    });
-    scene3d.scared = Math.min(1, world.scales.fear / 100);
-    scene3d.render(dt);
-  } else {
-    preview.currentRoom = world.room;
-    preview.draw(dt);
-  }
+    if (mode === '3d' && scene3d && !sceneLost) {
+      const stateNow = crouch ? 'sneak' : charState();
+      // Пройденные метры — единственный источник фазы походки: ноги физически
+      // не могут двигаться быстрее или медленнее самого движения.
+      scene3d.setCharacter(world.pos.x, world.pos.z, world.facing, stateNow, torchOn ? 'flashlight' : null, {
+        distance: travelled,
+        mode: stateNow === 'run' ? 'run' : stateNow === 'sneak' ? 'sneak' : 'walk',
+        speed: travelled > 0 ? travelled / Math.max(dt, 1e-3) : 0,
+      });
+      scene3d.scared = Math.min(1, world.scales.fear / 100);
+      scene3d.render(dt);
+    } else {
+      // карта: и когда мы в режиме карты, и когда 3D недоступно (нет WebGL
+      // или телефон отобрал контекст). Раньше во втором случае оставался
+      // застывший чёрный кадр, на котором «ничего не происходит».
+      if (sceneLost && app.dataset.mode !== 'map') {
+        app.dataset.mode = 'map';
+        preview.resize();
+      }
+      preview.currentRoom = world.room;
+      preview.draw(dt);
+    }
 
-  hud.update(world);
-  world.drainEvents();
+    hud.update(world);
+    world.drainEvents();
+  } catch (err) {
+    reportCrash(err);
+  }
 
   requestAnimationFrame(frame);
+}
+
+/**
+ * Ошибка в кадре: показать один раз и продолжать.
+ *
+ * Повторять тост каждый кадр нельзя — он превратится в мигание. Показываем
+ * первую ошибку и первую ошибку ПОСЛЕ последней удачной минуты, чтобы не
+ * потерять новую поломку, но и не залить экран текстом.
+ */
+let crashShown = 0;
+let crashCount = 0;
+function reportCrash(err) {
+  crashCount++;
+  const now = performance.now();
+  if (crashCount === 1 || now - crashShown > 60000) {
+    crashShown = now;
+    console.error('кадр упал', err);
+    hud?.toast('что-то сломалось, но игра идёт. ' + (err?.message ?? ''), 4000);
+  }
 }
 
 /**
@@ -506,6 +551,19 @@ setInterval(() => {
 document.addEventListener('visibilitychange', () => {
   lastT = performance.now();
 });
+
+// ─────────────────────────── офлайн ───────────────────────────
+// Регистрация service worker. Файл sw.js существовал с самого начала, но его
+// никто не регистрировал — то есть офлайна не было вообще, а обновления на
+// телефоне приходили только «когда-нибудь». network-first в sw.js теперь
+// работает: код с сервера важнее кэша, кэш — только когда сети нет.
+if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').catch((err) => {
+      console.warn('офлайн-кэш не включился', err);
+    });
+  });
+}
 
 preview.resize();
 preview.draw(0);

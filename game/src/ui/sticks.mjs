@@ -143,7 +143,12 @@ export class Sticks {
     };
     zone.addEventListener('pointerup', end);
     zone.addEventListener('pointercancel', end);
-    zone.addEventListener('pointerleave', end);
+    // Слушаем ВСЁ окно, а не только зону. Касание захвачено зоной, но если
+    // палец ушёл за её край (а он уходит: ведёшь вверх, к центру экрана),
+    // зона получала pointerleave и ОТПУСКАЛА стик при живом пальце —
+    // мальчик останавливался на полпути. Отпускание — только по pointerup.
+    window.addEventListener('pointerup', end);
+    window.addEventListener('pointercancel', end);
   }
 
   // ─────────────────────────── камера свайпом ───────────────────────────
@@ -198,9 +203,13 @@ export class Sticks {
       L.dragging = false;
       L.id = null;
     };
+    // Та же ошибка, что и у стика: pointerleave обрывал свайп, когда палец
+    // заходил на нижнюю треть экрана (там начиналась зона стика). Свайп
+    // докручивается до конца касания, а не до края зоны.
     zone.addEventListener('pointerup', end);
     zone.addEventListener('pointercancel', end);
-    zone.addEventListener('pointerleave', end);
+    window.addEventListener('pointerup', end);
+    window.addEventListener('pointercancel', end);
   }
 
   // ─────────────────────────── кнопки ───────────────────────────
