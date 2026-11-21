@@ -67,7 +67,9 @@ export class Scene3D {
     this.scene.add(this.hemi);
 
     // фонарь в руке: точечный свет + конус
-    this.torch = new THREE.SpotLight(0xffe6bd, 0, 9, Math.PI / 7, 0.45, 1.2);
+    // Конус фонаря. Широкий (58°) и с мягким краем: узкий луч на телефоне
+    // читается как «свечу в проход, а там ничего» — видно только пятачок.
+    this.torch = new THREE.SpotLight(0xffe6bd, 0, 12, Math.PI / 5.2, 0.72, 0.85);
     this.torch.position.set(0, 0.9, 0.1);
     this.scene.add(this.torch);
     this.torchTarget = new THREE.Object3D();
@@ -82,6 +84,15 @@ export class Scene3D {
     // и это самый честный способ показать, что мальчик маленький.
     // Первый раз экран был чёрным не из-за вида, а из-за камеры в стене,
     // света 0.53 и выключенного фонаря — это всё исправлено выше.
+    // ── что видно за дверью ──
+    // Соседняя комната грузится отдельной сценой и подменяется при переходе.
+    // Из-за этого в ОТКРЫТУЮ дверь была видна пустота: там просто ничего нет.
+    // Держим простую «комнату-на-просвет»: пол, потолок и четыре стены в тех
+    // же мировых координатах, только без мебели. Она стоит в сцене всегда,
+    // и в проём видно соседнюю комнату, а не чёрную дыру.
+    this.neighbour = null;
+    this.neighbourId = null;
+
     this.fp = true;
     this.yaw = 0;
     this.pitch = 0;              // 0 = горизонт, вниз отрицательно
@@ -115,6 +126,60 @@ export class Scene3D {
     this.fpScene?.resize(w, h);
   }
 
+  /**
+   * Построить соседние комнаты как «просвет»: пол, стены, потолок.
+   *
+   * Зачем: из комнаты видно только её саму, и открытая дверь ведёт в чёрную
+   * пустоту. Мебель в просвет не ставим (это дорого), но объём помещения,
+   * свет из него и пол уже дают ощущение, что там есть куда идти.
+   */
+  buildSightlines(room) {
+    if (this.neighbour) {
+      this.scene.remove(this.neighbour);
+      disposeGroup(this.neighbour);
+      this.neighbour = null;
+      this.neighbourId = null;
+    }
+    const group = new THREE.Group();
+    group.name = 'sightlines';
+    const seen = new Set();
+    for (const d of DOORS) {
+      if (d.a !== room.id && d.b !== room.id) continue;
+      // люк в полу/потолке — это не проём в стене: через него ничего не видно,
+      // а соседняя комната может стоять совсем в другой части дома
+      if (d.stairs) continue;
+      if (d.lock === 'люк в полу' || d.lock === 'люк в потолке') continue;
+      const otherId = d.a === room.id ? d.b : d.a;
+      if (!otherId || seen.has(otherId)) continue;
+      seen.add(otherId);
+      const other = roomById(otherId);
+      if (!other?.rect) continue;
+      // оболочка без мебели и без отделки — только объём
+      const shell = roomShellParts(other, { bare: true });
+      const g = buildGroup(shell.parts, { name: `see:${otherId}` });
+      // Оболочка построена в локальных координатах соседа (0…w, 0…d), а сцена
+      // живёт в координатах ТЕКУЩЕЙ комнаты с центром в нуле. Пересчитываем:
+      // сначала в мировые метры дома, потом обратно в локальные текущей.
+      const dx = other.rect.x - room.rect.x;
+      const dz = other.rect.z - room.rect.z;
+      g.position.set(dx - room.rect.w / 2, 0, dz - room.rect.d / 2);
+      group.add(g);
+      // слабый свет в просвете: иначе пол там чёрный
+      const l = new THREE.PointLight(0xffd9a0, 1.1, Math.max(other.rect.w, other.rect.d) * 1.6, 1.6);
+      l.position.set(
+        (other.rect.x - room.rect.x) + other.rect.w / 2 - room.rect.w / 2,
+        1.9,
+        (other.rect.z - room.rect.z) + other.rect.d / 2 - room.rect.d / 2,
+      );
+      group.add(l);
+    }
+    if (group.children.length) {
+      this.scene.add(group);
+      this.neighbour = group;
+      this.neighbourId = room.id;
+    }
+  }
+
   /** Загрузить комнату. */
   load(roomId, { instant = false } = {}) {
     if (this.roomId === roomId) return;
@@ -130,6 +195,14 @@ export class Scene3D {
     const shellGroup = buildGroup(shell.parts, { name: 'shell' });
     shellGroup.position.set(-room.rect.w / 2, 0, -room.rect.d / 2);
     group.add(shellGroup);
+    // Стекло окон отдельной группой: оно полупрозрачное, и сливать его с
+    // стенами нельзя. Без этого окно было просто дырой в стене — сборщик
+    // оболочки стекло возвращал, но в сцену его никто не добавлял.
+    if (shell.glass?.length) {
+      const glassGroup = buildGroup(shell.glass, { name: 'glass' });
+      glassGroup.position.set(-room.rect.w / 2, 0, -room.rect.d / 2);
+      group.add(glassGroup);
+    }
     if (room.kind === 'attic') {
       const roof = buildGroup(atticRoofParts(room), { name: 'roof' });
       roof.position.set(-room.rect.w / 2, 0, -room.rect.d / 2);
@@ -176,6 +249,7 @@ export class Scene3D {
     this.roomGroup = group;
     this.scene.add(group);
     this.buildDoors(room);
+    this.buildSightlines(room);
 
     // поставить мальчика в центр комнаты (позицию задаёт World)
     this.character.root.position.set(0, 0, 0);
@@ -198,8 +272,15 @@ export class Scene3D {
     this.hemi.intensity = 1.0 + t * 1.0;
     this.hemi.color.setHex(0x9db2d2);
     this.hemi.groundColor.setHex(0x2a2118);
-    if (!this.scene.fog) this.scene.fog = new THREE.Fog(0x0a0f16, 7, 19);
-    else this.scene.fog.color.setHex(0x0a0f16);
+    // Туман. Дальний край — за пределами дома (самый длинный луч из угла
+    // подвала в угол чердака ~11 м). Было 7→19 м при комнатах 5 м: дальняя
+    // стена уже тонула в дымке, и комната читалась как серый шар.
+    // Ближний край почти вплотную к стене — туман только смягчает угол, а не
+    // съедает комнату.
+    const far = Math.hypot(room.rect.w, room.rect.d) * 1.9 + 2;
+    if (!this.scene.fog) this.scene.fog = new THREE.Fog(0x0a0f16, far * 0.55, far);
+    else { this.scene.fog.near = far * 0.55; this.scene.fog.far = far; }
+    this.scene.fog.color.setHex(0x0a0f16);
   }
 
   disposeRoom() {
@@ -354,12 +435,18 @@ export class Scene3D {
     this.pitch = -0.12;                       // чуть под ноги, как при входе
   }
 
-  /** Поворот камеры (стик справа или свайп). Yaw — свободный, pitch ограничен. */
+  /**
+   * Поворот камеры. Yaw — свободный, pitch ограничен.
+   *
+   * Знаки. Свайп вправо по экрану должен поворачивать взгляд ВПРАВО, то есть
+   * уменьшать yaw: forward камеры = (−sin yaw, −cos yaw), и при yaw = 0 он
+   * смотрит в −Z, а «право» — это +X, которое получается при yaw < 0.
+   * То же с наклоном: палец вниз по экрану = смотреть вниз (pitch < 0).
+   * Раньше знаки шли напрямую, и оба свайпа были вывернуты наизнанку.
+   */
   rotate(deltaYaw, deltaPitch = 0) {
-    this.yaw += deltaYaw;
-    // От первого лица вниз можно смотреть почти в пол — видно свои ноги,
-    // вверх — до потолка. Раньше здесь стояло −0.5/0.42 от камеры-за-спиной.
-    this.pitch = Math.max(this.pitchMin, Math.min(this.pitchMax, this.pitch + deltaPitch));
+    this.yaw -= deltaYaw;
+    this.pitch = Math.max(this.pitchMin, Math.min(this.pitchMax, this.pitch - deltaPitch));
   }
 
   render(dt) {
@@ -390,16 +477,27 @@ export class Scene3D {
     // Полностью скрывать тело нельзя: смотришь вниз и видишь пустоту.
     this.character.setFirstPerson(true);
 
-    // ── фонарь: светит из правой руки туда, куда смотрим ──
-    const fwd = new THREE.Vector3(0, 0, -1).applyEuler(new THREE.Euler(0, this.yaw, 0, 'YXZ'));
-    const right = new THREE.Vector3(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
-    this.torch.position.set(
-      this.eye.x + right.x * 0.2 - fwd.x * 0.15,
-      this.eye.y - 0.12,
-      this.eye.z + right.z * 0.2 - fwd.z * 0.15,
-    );
-    this.torchTarget.position.copy(this.torch.position).addScaledVector(fwd, 3.5);
-    this.torchTarget.position.y -= 0.25 + Math.tan(this.pitch) * 1.2;
+    // ── фонарь: светит из правой руки ТУДА, КУДА СМОТРИМ ──
+    // Раньше конус считался по одному yaw, а высота корректировалась вручную
+    // через tan(pitch) — при взгляде вверх ствол уходил в пол, при взгляде
+    // вниз светил в потолок. Теперь направление берётся из настоящего
+    // поворота камеры, вместе с наклоном.
+    const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion);
+    const right = new THREE.Vector3(1, 0, 0).applyQuaternion(this.camera.quaternion);
+    const up = new THREE.Vector3(0, 1, 0).applyQuaternion(this.camera.quaternion);
+    // ствол в правой руке: чуть справа, чуть ниже и впереди глаз
+    this.torch.position.copy(this.eye)
+      .addScaledVector(right, 0.18)
+      .addScaledVector(up, -0.16)
+      .addScaledVector(dir, 0.12);
+    // свет — по оси взгляда, с небольшим креном к центру (фонарь в руке
+    // светит не идеально ровно, но и не в сторону)
+    // Целимся ДАЛЬШЕ, чем стены: фонарь должен освещать комнату перед собой,
+    // а не точку в полуметре. Направление важнее — пятно всё равно ляжет по
+    // лучу, а пятно на 2–6 м как раз читает комнату.
+    this.torchTarget.position.copy(this.torch.position)
+      .addScaledVector(dir, 6)
+      .addScaledVector(right, -0.1);
 
     // ── руки от первого лица ──
     if (!this.fpScene) {

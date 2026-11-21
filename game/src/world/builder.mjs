@@ -52,6 +52,120 @@ export function boxGeometry(w, h, d) {
   return quadsToMesh(verts, faces);
 }
 
+/**
+ * Коробка с фаской по всем рёбрам — «мягкий» куб.
+ *
+ * Зачем: мебель из чистых параллелепипедов читается как макет из картона.
+ * Фаска 6–10 мм ловит свет на ребре, и появляется ощущение толщины и
+ * материала — ровно то, чего не хватает.
+ *
+ * Устройство: каждая грань сжата на `c` со всех сторон, между гранями
+ * вставлены 12 полос (рёбра) и 8 треугольников (углы). Нормали считаются
+ * аналитически, а обход вершин проверяется по ним: если треугольник смотрит
+ * внутрь, он разворачивается. Поэтому геометрия не может «вывернуться».
+ */
+export function bevelBoxGeometry(w, h, d, c = 0.008) {
+  w = Math.max(1e-4, w); h = Math.max(1e-4, h); d = Math.max(1e-4, d);
+  const m = Math.min(w, h, d) * 0.45;
+  c = Math.max(0, Math.min(c, m));
+  const hw = w / 2, hh = h / 2, hd = d / 2;
+  const ix = hw - c, iy = hh - c, iz = hd - c;
+
+  const polys = [];   // { v: [[x,y,z], ...], n: [x,y,z] }
+
+  // ── 6 граней
+  for (const sx of [-1, 1]) {
+    polys.push({
+      n: [sx, 0, 0],
+      v: [[sx * hw, -iy, -iz], [sx * hw, iy, -iz], [sx * hw, iy, iz], [sx * hw, -iy, iz]],
+    });
+  }
+  for (const sy of [-1, 1]) {
+    polys.push({
+      n: [0, sy, 0],
+      v: [[-ix, sy * hh, -iz], [ix, sy * hh, -iz], [ix, sy * hh, iz], [-ix, sy * hh, iz]],
+    });
+  }
+  for (const sz of [-1, 1]) {
+    polys.push({
+      n: [0, 0, sz],
+      v: [[-ix, -iy, sz * hd], [ix, -iy, sz * hd], [ix, iy, sz * hd], [-ix, iy, sz * hd]],
+    });
+  }
+
+  // ── 12 рёбер: полоса между двумя гранями
+  for (const sx of [-1, 1]) {
+    for (const sy of [-1, 1]) {
+      const n = [sx * Math.SQRT1_2, sy * Math.SQRT1_2, 0];
+      polys.push({
+        n,
+        v: [[sx * hw, sy * iy, -iz], [sx * hw, sy * iy, iz], [sx * ix, sy * hh, iz], [sx * ix, sy * hh, -iz]],
+      });
+    }
+    for (const sz of [-1, 1]) {
+      const n = [sx * Math.SQRT1_2, 0, sz * Math.SQRT1_2];
+      polys.push({
+        n,
+        v: [[sx * hw, -iy, sz * hd], [sx * hw, iy, sz * hd], [sx * ix, iy, sz * iz], [sx * ix, -iy, sz * iz]],
+      });
+    }
+  }
+  for (const sy of [-1, 1]) {
+    for (const sz of [-1, 1]) {
+      const n = [0, sy * Math.SQRT1_2, sz * Math.SQRT1_2];
+      polys.push({
+        n,
+        v: [[-ix, sy * hh, sz * hd], [ix, sy * hh, sz * hd], [ix, sy * iy, sz * iz], [-ix, sy * iy, sz * iz]],
+      });
+    }
+  }
+
+  // ── 8 углов: треугольник, срезающий угол
+  for (const sx of [-1, 1]) {
+    for (const sy of [-1, 1]) {
+      for (const sz of [-1, 1]) {
+        const k = 1 / Math.sqrt(3);
+        polys.push({
+          n: [sx * k, sy * k, sz * k],
+          v: [
+            [sx * hw, sy * iy, sz * iz],
+            [sx * ix, sy * hh, sz * iz],
+            [sx * ix, sy * iy, sz * hd],
+          ],
+        });
+      }
+    }
+  }
+
+  return polysToMesh(polys);
+}
+
+/** Полигоны (3–4 вершины) с заданной нормалью → меш, с проверкой обхода. */
+export function polysToMesh(polys) {
+  const pos = [], nrm = [], idx = [];
+  for (const p of polys) {
+    const v = p.v;
+    // нормаль из первых трёх вершин; если смотрит против ожидаемой — разворачиваем
+    const u = [v[1][0] - v[0][0], v[1][1] - v[0][1], v[1][2] - v[0][2]];
+    const w2 = [v[2][0] - v[0][0], v[2][1] - v[0][1], v[2][2] - v[0][2]];
+    const cr = [
+      u[1] * w2[2] - u[2] * w2[1],
+      u[2] * w2[0] - u[0] * w2[2],
+      u[0] * w2[1] - u[1] * w2[0],
+    ];
+    const dot = cr[0] * p.n[0] + cr[1] * p.n[1] + cr[2] * p.n[2];
+    const verts = dot < 0 ? [...v].reverse() : v;
+    const base = pos.length / 3;
+    for (const q of verts) {
+      pos.push(q[0], q[1], q[2]);
+      nrm.push(p.n[0], p.n[1], p.n[2]);
+    }
+    if (verts.length === 3) idx.push(base, base + 1, base + 2);
+    else idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+  }
+  return { pos, nrm, idx };
+}
+
 /** Цилиндр по Y, центр в (0,0,0). */
 export function cylinderGeometry(rTop, rBottom, h, seg = 10) {
   const pos = [], nrm = [], idx = [];
@@ -137,12 +251,19 @@ export function coneGeometry(r, h, seg = 8) {
 
 // Фабрики примитивов: описание из props (s — размеры) → геометрия.
 const primBox = (p) => boxGeometry(p.s[0], p.s[1], p.s[2]);
+// Фаска: по умолчанию 8 мм, но у тонких плоских деталей её нужно погасить,
+// иначе доска толщиной 12 мм превратится в лепёшку.
+const primBev = (p) => {
+  const c = p.bv ?? Math.min(p.s[0], p.s[1], p.s[2]) * 0.22;
+  return bevelBoxGeometry(p.s[0], p.s[1], p.s[2], Math.min(c, 0.02));
+};
 const primCyl = (p) => cylinderGeometry(p.r2 ?? p.r, p.r, p.h, p.seg ?? (p.r < 0.05 ? 6 : 10));
 const primSph = (p) => sphereGeometry(p.r, p.r < 0.05 ? 6 : 10, p.r < 0.05 ? 4 : 7);
 const primCone = (p) => coneGeometry(p.r, p.h, p.seg ?? 8);
 
 export const PRIMITIVES = {
   box: primBox,
+  bev: primBev,
   cyl: primCyl,
   sph: primSph,
   cone: primCone,

@@ -76,6 +76,42 @@ t('поворот камеры не ломает направление стик
   ok(Math.abs(w.x + 1) < 0.02, `вперёд при yaw=90 должен быть -X, вышло ${w.x.toFixed(2)}`);
 });
 
+t('свайп вправо поворачивает взгляд вправо', () => {
+  // Знаковая ошибка, которую видно сразу: ведёшь пальцем вправо, а мир
+  // уезжает влево. Проверяем по настоящей матрице камеры.
+  const cam = new THREE.PerspectiveCamera(68, 9 / 16, 0.02, 40);
+  cam.rotation.order = 'YXZ';
+  const fwdAt = (yaw) => {
+    cam.rotation.set(0, yaw, 0);
+    cam.updateMatrixWorld(true);
+    return new THREE.Vector3(0, 0, -1).applyQuaternion(cam.quaternion);
+  };
+  // как в scene3d: yaw -= свайп
+  const swipeRight = 0.4;
+  const before = fwdAt(0);
+  const after = fwdAt(0 - swipeRight);
+  const turnedRight = after.x - before.x;
+  ok(turnedRight > 0, `после свайпа вправо взгляд ушёл влево (dx=${turnedRight.toFixed(2)})`);
+  const left = fwdAt(0 + swipeRight);
+  ok(left.x < 0, 'свайп влево не уводит взгляд влево');
+});
+
+t('свайп вниз смотрит вниз, а не в потолок', () => {
+  const cam = new THREE.PerspectiveCamera(68, 9 / 16, 0.02, 40);
+  cam.rotation.order = 'YXZ';
+  const fwdAt = (pitch) => {
+    cam.rotation.set(pitch, 0, 0);
+    cam.updateMatrixWorld(true);
+    return new THREE.Vector3(0, 0, -1).applyQuaternion(cam.quaternion);
+  };
+  // как в scene3d: pitch -= свайп по Y
+  const swipeDown = 0.4;
+  const after = fwdAt(0 - swipeDown);
+  ok(after.y < 0, `после свайпа вниз взгляд смотрит вверх (y=${after.y.toFixed(2)})`);
+  const up = fwdAt(0 + swipeDown);
+  ok(up.y > 0, 'свайп вверх не поднимает взгляд');
+});
+
 console.log('');
 if (fail) {
   console.log(`✗ ПРОВАЛЕНО: ${fail}, пройдено: ${pass}\n`);

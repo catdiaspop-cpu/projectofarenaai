@@ -53,6 +53,20 @@ export const PALETTE = {
   candle:      0xf2e3bd,
   ember:       0xff9a4a,
 
+  // детали комнат: книги, картон, плетение, бумага
+  bookRed:     0x8c3a30,
+  bookBlue:    0x33465f,
+  bookGreen:   0x3f5a44,
+  bookBrown:   0x6a4a30,
+  paperShadow: 0xb8ae98,
+  cardboard:   0x9c7a52,
+  cardboardDark: 0x7d5f3d,
+  tape:        0xc9b98a,
+  wicker:      0xa88452,
+  teaDark:     0x3a2418,
+  cloth1:      0x8f8a80,
+  cloth2:      0x6a5f55,
+
   // еда и мелочи
   bread:       0xc08a4a,
   milk:        0xe8e6de,
