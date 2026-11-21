@@ -1,0 +1,13 @@
+{
+  "name": "НЕ СПИ",
+  "short_name": "НЕ СПИ",
+  "description": "Мальчик, дом, бессонница",
+  "start_url": "./",
+  "display": "fullscreen",
+  "orientation": "portrait",
+  "background_color": "#05070a",
+  "theme_color": "#070a0e",
+  "icons": [
+    { "src": "./icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

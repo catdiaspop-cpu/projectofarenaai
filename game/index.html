@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
+  <meta name="theme-color" content="#070a0e" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>НЕ СПИ</title>
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="icon" href="./icon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div id="app" class="app" data-mode="3d">
+    <canvas id="scene" class="scene" aria-label="Сцена комнаты"></canvas>
+    <canvas id="map" class="map" aria-label="Разрез дома"></canvas>
+
+    <div id="hud" class="hud"></div>
+
+    <div id="boot" class="boot">
+      <div class="boot-inner">
+        <p class="boot-note">мама сказала:</p>
+        <h1 class="boot-title">спи до семи.<br />и что бы ты ни услышал —</h1>
+        <p class="boot-rules">не отвечай. не смотри. не спи.</p>
+        <button id="start" class="boot-start">начать ночь</button>
+        <p class="boot-hint">наушники сделают это честнее</p>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="./src/main.mjs"></script>
+</body>
+</html>
