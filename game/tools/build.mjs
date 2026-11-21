@@ -5,6 +5,7 @@
 // но главной страницей становится «НЕ СПИ».
 
 import fs from 'node:fs';
+import crypto from 'node:crypto';
 import path from 'node:path';
 import zlib from 'node:zlib';
 
@@ -74,7 +75,18 @@ if (!oldMissing.length) {
 const swPath = path.join(dist, 'sw.js');
 let sw = fs.readFileSync(swPath, 'utf8');
 sw = sw.replace(/const ASSETS = \[[\s\S]*?\];/, `const ASSETS = ${JSON.stringify(FILES.map((f) => './' + f), null, 2)};`);
+
+// Имя кэша = хэш содержимого. Иначе телефон с cache-first отдаёт старую
+// версию после каждого деплоя, и правки «не доезжают».
+// sw.js из хэша исключён: мы его же и правим, иначе хэш никогда не сойдётся.
+const hash = crypto.createHash('sha256');
+for (const f of FILES.filter((x) => x !== 'sw.js').sort()) {
+  hash.update(f).update(fs.readFileSync(path.join(dist, f)));
+}
+const version = hash.digest('hex').slice(0, 10);
+sw = sw.replace(/const CACHE_VERSION = '[^']*';/, `const CACHE_VERSION = '${version}';`);
 fs.writeFileSync(swPath, sw);
+console.log(`  версия кэша: ${version}`);
 
 // ── .nojekyll: иначе Pages может проигнорировать часть путей
 fs.writeFileSync(path.join(dist, '.nojekyll'), '');

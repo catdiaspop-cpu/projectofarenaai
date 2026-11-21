@@ -1,5 +1,10 @@
 // Офлайн-кэш: игра целиком лежит локально, сеть нужна только для первого визита.
-const CACHE = 'nespi-v1';
+//
+// CACHE_VERSION подставляется сборкой из хэша содержимого (tools/build.mjs).
+// Без этого телефон продолжал бы отдавать вчерашнюю версию из кэша:
+// cache-first + неизменное имя кэша = игрок не видит ни одной правки.
+const CACHE_VERSION = 'dev';
+const CACHE = `nespi-${CACHE_VERSION}`;
 const ASSETS = [
   './', './index.html', './styles.css', './src/main.mjs',
   './src/core/app.mjs', './src/core/input.mjs', './src/core/joystick.mjs',
@@ -21,13 +26,42 @@ self.addEventListener('activate', (e) => {
   );
 });
 
+// Стратегия:
+//   * сам игровой код и разметка — сначала СЕТЬ, кэш только офлайн.
+//     Так правка видна сразу после деплоя, а не через «очистить кэш» на телефоне.
+//   * three.js (731 КБ, никогда не меняется) и иконки — сначала кэш.
+const NETWORK_FIRST = /\.(mjs|js|css|html|webmanifest)$|\/$/;
+
 self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;
+
+  const url = new URL(e.request.url);
+  if (url.origin !== self.location.origin) return;   // чужое не трогаем
+
+  const networkFirst = NETWORK_FIRST.test(url.pathname);
+
+  if (networkFirst) {
+    e.respondWith(
+      fetch(e.request)
+        .then((res) => {
+          if (res && res.ok) {
+            const copy = res.clone();
+            caches.open(CACHE).then((c) => c.put(e.request, copy)).catch(() => {});
+          }
+          return res;
+        })
+        .catch(() => caches.match(e.request).then((hit) => hit || caches.match('./index.html'))),
+    );
+    return;
+  }
+
   e.respondWith(
     caches.match(e.request).then((hit) => hit || fetch(e.request).then((res) => {
-      const copy = res.clone();
-      caches.open(CACHE).then((c) => c.put(e.request, copy)).catch(() => {});
+      if (res && res.ok) {
+        const copy = res.clone();
+        caches.open(CACHE).then((c) => c.put(e.request, copy)).catch(() => {});
+      }
       return res;
-    }).catch(() => caches.match('./index.html')))
+    }).catch(() => caches.match('./index.html'))),
   );
 });

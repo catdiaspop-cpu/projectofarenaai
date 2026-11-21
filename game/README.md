@@ -9,7 +9,7 @@
 ```bash
 cd game
 npm run dev        # http://localhost:4173
-npm test           # 141 проверка без браузера
+npm test           # 149 проверок без браузера
 npm run build      # dist/ + бюджеты
 ```
 
