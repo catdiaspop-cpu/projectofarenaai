@@ -33,6 +33,17 @@ export function solidSpans(len, openings) {
   return out;
 }
 
+/** К какой стене ближе точка — когда у окна не указана сторона. */
+function sideOfPoint(at, rect) {
+  const d = [
+    { side: 'n', v: Math.abs(at.z - rect.z) },
+    { side: 's', v: Math.abs(at.z - (rect.z + rect.d)) },
+    { side: 'w', v: Math.abs(at.x - rect.x) },
+    { side: 'e', v: Math.abs(at.x - (rect.x + rect.w)) },
+  ].sort((a, b) => a.v - b.v);
+  return d[0].side;
+}
+
 /** Проёмы этой комнаты на каждой из четырёх стен. */
 export function openingsFor(room) {
   const { rect } = room;
@@ -55,15 +66,130 @@ export function openingsFor(room) {
 
   for (const w of WINDOWS) {
     if (w.room !== room.id) continue;
-    const lx = w.at.x - rect.x;
-    const lz = w.at.z - rect.z;
+    // окно может быть на стене, параллельной ДРУГОЙ оси: в спальне родителей
+    // оно на северной стене, но z у него не 0, а координата вдоль стены.
+    // Раньше окно молча не ставилось, и комната оставалась без окон вообще.
+    const edge = w.dir ?? sideOfPoint(w.at, rect);
+    const lx = edge === 'n' || edge === 's' ? w.at.x - rect.x : (edge === 'w' ? 0 : rect.w);
+    const lz = edge === 'w' || edge === 'e' ? w.at.z - rect.z : (edge === 'n' ? 0 : rect.d);
     const open = { from: 0, to: 0, h: w.size.h, sill: w.sill, kind: 'window', w };
-    if (near(lz, 0)) sides.n.push({ ...open, from: lx - w.size.w / 2, to: lx + w.size.w / 2 });
-    else if (near(lz, rect.d)) sides.s.push({ ...open, from: lx - w.size.w / 2, to: lx + w.size.w / 2 });
-    else if (near(lx, 0)) sides.w.push({ ...open, from: lz - w.size.w / 2, to: lz + w.size.w / 2 });
-    else if (near(lx, rect.w)) sides.e.push({ ...open, from: lz - w.size.w / 2, to: lz + w.size.w / 2 });
+    if (edge === 'n' || edge === 's') {
+      const span = { ...open, from: lx - w.size.w / 2, to: lx + w.size.w / 2 };
+      (edge === 'n' ? sides.n : sides.s).push(span);
+    } else {
+      const span = { ...open, from: lz - w.size.w / 2, to: lz + w.size.w / 2 };
+      (edge === 'w' ? sides.w : sides.e).push(span);
+    }
   }
   return sides;
+}
+
+/**
+ * Что видно за стеклом: ночное небо, луна и звёзды.
+ *
+ * Раньше за окном была одна полупрозрачная плоскость цвета glassDark — на
+ * экране это читалось как синяя заливка или чёрная дыра. Ночь за окном —
+ * это единственный «улица» в комнате и половина настроения, поэтому за
+ * проём ставится тёмная плоскость неба, на ней светлый диск луны и звёзды.
+ *
+ * Всё это лежит СНАРУЖИ стены (за её внешней плоскостью), поэтому в комнате
+ * ничего не перекрывает.
+ */
+function nightBehind(glass, wall, cx, w, bottom, h) {
+  const T = WALL_T;
+  const out = wall.at + (wall.side === 'n' || wall.side === 'w' ? -1 : 1) * (T / 2 + 0.06);
+  const W = Math.max(w * 2.4, 2.6);
+  const H2 = Math.max(h * 2.4, 2.6);
+  const cy = bottom + h / 2;
+  if (wall.axis === 'x') {
+    glass.push(BX(W, H2, 0.02, cx, cy - H2 / 2, out, 'nightSky'));
+    // луна: видна из окна, чуть выше середины
+    glass.push({ t: 'sph', r: 0.13, p: [cx + w * 0.22, cy + h * 0.22, out + (out < wall.at ? 0.03 : -0.03)], mat: 'moon' });
+    // звёзды: мелкие точки, 8 штук, детерминированно по номеру окна
+    for (let i = 0; i < 8; i++) {
+      const a = (i * 2.399) % (Math.PI * 2);
+      const sx = cx + Math.cos(a) * w * 0.48;
+      const sy = cy + Math.sin(a) * h * 0.42;
+      glass.push(BX(0.022, 0.022, 0.01, sx, sy, out + (out < wall.at ? 0.03 : -0.03), 'star'));
+    }
+  } else {
+    glass.push(BX(0.02, H2, W, out, cy - H2 / 2, cx, 'nightSky'));
+    glass.push({ t: 'sph', r: 0.13, p: [out + (out < wall.at ? 0.03 : -0.03), cy + h * 0.22, cx + w * 0.22], mat: 'moon' });
+    for (let i = 0; i < 8; i++) {
+      const a = (i * 2.399) % (Math.PI * 2);
+      const sz = cx + Math.cos(a) * w * 0.48;
+      const sy = cy + Math.sin(a) * h * 0.42;
+      glass.push(BX(0.01, 0.022, 0.022, out + (out < wall.at ? 0.03 : -0.03), sy, sz, 'star'));
+    }
+  }
+}
+
+/**
+ * Отделка стены: панель снизу, полоса обоев, карниз сверху.
+ *
+ * Зачем. Раньше стена была ОДНОЙ плоской коробкой цвета wallpaper — на
+ * телефоне она читалась как коричневое пятно, и комната выглядела пустой
+ * даже с мебелью. Три горизонтальные полосы разной высоты дают стене
+ * масштаб: по ним видно, что мальчик маленький, а стена высокая.
+ *
+ * @param {object} wall — { side, len, axis, at } из основного цикла
+ * @param {Array} spans — сплошные куски стены [{from,to}] без проёмов
+ * @param {object} look — цвета отделки комнаты
+ */
+function addWallTrim(parts, wall, spans, look) {
+  const T = WALL_T;
+  // на чердаке и в подвале стены «как есть»: одна панель на всех — это и есть
+  // «все комнаты одинаковые»
+  if (look.flatWalls) {
+    for (const sp of spans) {
+      const w = sp.to - sp.from;
+      if (w < 0.05) continue;
+      const cx = sp.from + w / 2;
+      if (wall.axis === 'x') parts.push(BX(w, 0.07, T + 0.03, cx, HEIGHTS.floorHeight - 0.07, wall.at, look.trim));
+      else parts.push(BX(T + 0.03, 0.07, w, wall.at, HEIGHTS.floorHeight - 0.07, cx, look.trim));
+    }
+    return;
+  }
+  const wainscotH = 0.92;      // высота нижней панели: до пояса взрослому
+  const railH = 0.05;
+  const corniceH = 0.09;
+
+  for (const sp of spans) {
+    const w = sp.to - sp.from;
+    if (w < 0.05) continue;
+    const cx = sp.from + w / 2;
+
+    // thin — плоские элементы (полосы обоев, поясок, карниз): на них фаска
+    // не видна, а стоит 44 треугольника вместо 12. Панель — с фаской.
+    const put = (ww, hh, yy, mat, depth, thin = false) => {
+      const f = thin ? BX : B;
+      if (wall.axis === 'x') parts.push(f(ww, hh, depth ?? T, cx, yy, wall.at, mat));
+      else parts.push(f(depth ?? T, hh, ww, wall.at, yy, cx, mat));
+    };
+
+    // панель снизу — своя на каждую комнату, выступает на 1.2 см
+    // (плинтус глубже, иначе две плоскости совпадают и мерцают)
+    put(w, wainscotH, 0, look.wainscot ?? 'wainscot', T + 0.012);
+    // поясок между панелью и обоями
+    put(w, railH, wainscotH, look.trim, T + 0.035, true);
+    // карниз под потолком
+    put(w, corniceH, HEIGHTS.floorHeight - corniceH, look.trim, T + 0.03, true);
+
+    // обои: тонкие вертикальные полосы через 0.42 м. Только в верхней части,
+    // выше панели, и только если стена длинная — иначе это шум.
+    if (w > 0.6) {
+      const stripe = 0.11;
+      const step = 0.42;
+      const y0 = wainscotH + railH;
+      const h = HEIGHTS.floorHeight - corniceH - y0;
+      if (h > 0.2) {
+        for (let x = sp.from + 0.28; x < sp.to - 0.2; x += step) {
+          if (wall.axis === 'x') parts.push(BX(stripe, h, T + 0.012, x, y0, wall.at, look.stripe ?? look.wall));
+          else parts.push(BX(T + 0.012, h, stripe, wall.at, y0, x, look.stripe ?? look.wall));
+        }
+      }
+    }
+  }
 }
 
 /**
@@ -116,6 +242,22 @@ export function roomShellParts(room, { bare = false } = {}) {
         }
       }
     }
+    // Плинтус и панель у соседей тоже нужны: без них в проём видно голую
+    // коробку, и «настоящая комната» читается как пустой ящик.
+    for (const wall of walls) {
+      for (const s2 of solidSpans(wall.len, openings[wall.side])) {
+        const w2 = s2.to - s2.from;
+        if (w2 < 0.05) continue;
+        const c2 = s2.from + w2 / 2;
+        if (wall.axis === 'x') {
+          parts.push(BX(w2, 0.1, WALL_T + 0.02, c2, 0, wall.at, look.trim));
+          parts.push(BX(w2, 0.5, WALL_T + 0.012, c2, 0, wall.at, look.wainscot ?? 'wainscot'));
+        } else {
+          parts.push(BX(WALL_T + 0.02, 0.1, w2, wall.at, 0, c2, look.trim));
+          parts.push(BX(WALL_T + 0.012, 0.5, w2, wall.at, 0, c2, look.wainscot ?? 'wainscot'));
+        }
+      }
+    }
     return { parts, openings, glass };
   }
 
@@ -157,6 +299,8 @@ export function roomShellParts(room, { bare = false } = {}) {
         parts.push(B(WALL_T + 0.02, BASE_H, w, wall.at, 0, cx, look.trim));
       }
     }
+    // панель, поясок, карниз и полосы обоев — стена перестаёт быть пятном
+    addWallTrim(parts, wall, spans, look);
     // над дверью — перемычка; над/под окном — куски
     for (const o of ops) {
       const w = o.to - o.from;
@@ -209,6 +353,7 @@ export function roomShellParts(room, { bare = false } = {}) {
           parts.push(B(0.04, o.h + 0.14, WALL_T + 0.03, cx + w / 2 + 0.09, bottom - 0.06, wall.at, look.trim));
           parts.push(B(w + 0.22, 0.04, WALL_T + 0.03, cx, top + 0.02, wall.at, look.trim));
           glass.push(BX(w - 0.06, o.h - 0.06, 0.02, cx, bottom, wall.at, 'glassDark'));
+          nightBehind(glass, wall, cx, w, bottom, o.h);
         } else {
           parts.push(B(WALL_T + sillDepth, 0.05, w + 0.16, wall.at, bottom - 0.05, cx, look.trim));
           parts.push(B(WALL_T, o.h, fr, wall.at, bottom, cx - w / 2, look.trim));
@@ -219,6 +364,7 @@ export function roomShellParts(room, { bare = false } = {}) {
           parts.push(B(WALL_T + 0.03, o.h + 0.14, 0.04, wall.at, bottom - 0.06, cx + w / 2 + 0.09, look.trim));
           parts.push(B(WALL_T + 0.03, 0.04, w + 0.22, wall.at, top + 0.02, cx, look.trim));
           glass.push(BX(0.02, o.h - 0.06, w - 0.06, wall.at, bottom, cx, 'glassDark'));
+          nightBehind(glass, wall, cx, w, bottom, o.h);
         }
       }
     }

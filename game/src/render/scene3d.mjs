@@ -79,6 +79,12 @@ export class Scene3D {
     // свет ночника и ламп комнаты
     this.roomLights = [];
 
+    // ── лунный свет из окон ──
+    // Окно без света снаружи — это чёрная дыра в стене. Холодный направленный
+    // свет из каждого окна даёт синий откос на стене, тень от мебели и главное —
+    // второй цвет в комнате: без него всё сливается в коричневую кашу.
+    this.windowLights = [];
+
     // ── Камера ОТ ПЕРВОГО ЛИЦА ──
     // Глаза ребёнка на высоте 1.10 м: дверь 2.05 м нависает вдвое выше роста,
     // и это самый честный способ показать, что мальчик маленький.
@@ -96,8 +102,11 @@ export class Scene3D {
     this.fp = true;
     this.yaw = 0;
     this.pitch = 0;              // 0 = горизонт, вниз отрицательно
-    this.pitchMin = -0.95;
-    this.pitchMax = 0.85;
+    // −0.62 рад ≈ −35°: пол видно, но кадр не превращается в «смотрю на ноги».
+    // Было −0.95 (почти −54°): один свайп вниз — и весь экран занимает ковёр,
+    // а сверху торчит собственный торс. Это и читалось как «как-то не очень».
+    this.pitchMin = -0.62;
+    this.pitchMax = 0.52;
     // глаза двигаются вместе с мальчиком; bob и sway — от фазы шага
     this.eye = new THREE.Vector3(0, FP.eyeHeight, 0);
     this.eyeBase = FP.eyeHeight;
@@ -250,6 +259,7 @@ export class Scene3D {
     this.scene.add(group);
     this.buildDoors(room);
     this.buildSightlines(room);
+    this.buildWindowLight(room);
 
     // поставить мальчика в центр комнаты (позицию задаёт World)
     this.character.root.position.set(0, 0, 0);
@@ -261,6 +271,31 @@ export class Scene3D {
     this.camera.position.copy(this.eye);
     this.camera.rotation.order = 'YXZ';
     this.camera.rotation.set(this.pitch, this.yaw, 0);
+  }
+
+  /**
+   * Лунный свет: по лампе на каждое окно комнаты, снаружи внутрь.
+   * Цвет холодный, сила маленькая — он не должен спорить с фонарём, только
+   * отделять объём.
+   */
+  buildWindowLight(room) {
+    for (const l of this.windowLights) { this.scene.remove(l); }
+    this.windowLights = [];
+    for (const w of WINDOWS) {
+      if (w.room !== room.id) continue;
+      // сторона окна: по координате, если сторона не указана
+      const side = w.dir ?? (Math.abs(w.at.z - room.rect.z) < 0.2 ? 'n'
+        : Math.abs(w.at.z - (room.rect.z + room.rect.d)) < 0.2 ? 's'
+        : Math.abs(w.at.x - room.rect.x) < 0.2 ? 'w' : 'e');
+      const lx = w.at.x - room.rect.x - room.rect.w / 2;
+      const lz = w.at.z - room.rect.z - room.rect.d / 2;
+      const y = (w.sill ?? 1) + w.size.h / 2;
+      const inward = { n: [0, 1], s: [0, -1], w: [1, 0], e: [-1, 0] }[side];
+      const light = new THREE.PointLight(0x93b4e0, 2.1, 7.5, 1.5);
+      light.position.set(lx + inward[0] * 0.5, y + 0.15, lz + inward[1] * 0.5);
+      this.scene.add(light);
+      this.windowLights.push(light);
+    }
   }
 
   applyEnvironment(room) {
@@ -290,6 +325,8 @@ export class Scene3D {
     this.roomGroup = null;
     this.propMeshes = new Map();
     this.roomLights = [];
+    for (const l of this.windowLights) this.scene.remove(l);
+    this.windowLights = [];
   }
 
   setTorch(on, power = 1) {

@@ -3,20 +3,31 @@
 
 export const PALETTE = {
   // стены и пол
-  wallpaper:   0x6a5d4b,  // обои с утятами: тёплый серо-коричневый
-  wallpaper2:  0x7a6b55,  // полоса обоев
+  wallpaper:   0x71634f,  // обои с утятами: тёплый серо-коричневый
+  wallpaper2:  0x7f7058,  // полоса обоев
   wainscot:    0x4a3c2e,  // панель снизу
-  ceiling:     0x8a8278,
-  floorWood:   0x4b3627,
-  floorWood2:  0x5a4130,
+
+  // панели и полосы обоев по комнатам: один цвет на весь дом — это «каша»
+  wainscotGreen: 0x3f4a3a,  // детская: зеленоватая панель
+  wainscotBlue:  0x38414f,  // спальня: синеватая
+  wainscotRed:   0x4a3234,  // гостиная: бордовая
+  wainscotCream: 0x6d6455,  // кухня и коридор: светлая
+  wainscotStone: 0x4d4b46,  // ванная: камень
+  stripeRose:    0x7d6a5f,  // полоса обоев в детской
+  stripeCool:    0x6a6f76,  // прохладная полоса
+  stripeWarm:    0x80715a,  // тёплая полоса
+  bathWall:      0x8a8f8c,  // стены ванной: плитка, а не тюль
+  ceiling:     0x9a9287,
+  floorWood:   0x5a4029,
+  floorWood2:  0x6a4c33,
   carpet:      0x38404a,
   carpetRed:   0x5a3030,
-  lino:        0x585048,
+  lino:        0x635a50,
 
   // дерево
-  walnut:      0x53381f,
-  oak:         0x7d5a33,
-  pine:        0xa07c4f,
+  walnut:      0x5d3f24,
+  oak:         0x8a6438,
+  pine:        0xac875a,
   plywood:     0xb08a5c,
   chipboard:   0x8a7250,
 
@@ -24,7 +35,7 @@ export const PALETTE = {
   door:        0x6b4527,  // створка: тёплое дерево
   doorPanel:   0x7a5230,  // филёнка чуть светлее
   doorDark:    0x4e3219,  // торец и низ
-  trim:        0xd8d0c0,  // наличник, плинтус, косяк
+  trim:        0xe2dacb,  // наличник, плинтус, косяк
   doorHandle:  0xb99a5c,  // латунная ручка
 
   // ткань и мягкое
@@ -92,6 +103,7 @@ export const PALETTE = {
   nightSky:    0x0b1424,
   nightSky2:   0x121d33,
   moon:        0xcfdcff,
+  star:        0xaebcd6,
   foliage:     0x2c3a2c,
   asphalt:     0x2a2c2e,
   vanWhite:    0xb8b8b4,
@@ -123,6 +135,11 @@ export const MATERIALS = {
   glass:       { rough: 0.1,  metal: 0.0, transparent: 0.28 },
   glassDark:   { rough: 0.15, metal: 0.2, transparent: 0.45 },
   bulb:        { rough: 0.4,  metal: 0.0, emissive: 1.0 },
+  // ночь за окном: без свечения окно днём превращается в чёрный прямоугольник,
+  // а ночью его вообще не видно — свет снаружи физически «не наш»
+  nightSky:    { rough: 1.0,  metal: 0.0, emissive: 0.55 },
+  moon:        { rough: 1.0,  metal: 0.0, emissive: 1.35 },
+  star:        { rough: 1.0,  metal: 0.0, emissive: 0.95 },
   ember:       { rough: 0.6,  metal: 0.0, emissive: 0.6 },
   paper:       { rough: 1.0,  metal: 0.0 },
   plush:       { rough: 1.0,  metal: 0.0 },

@@ -458,9 +458,11 @@ startBtn.addEventListener('click', () => {
   boot.classList.add('hidden');
   running = true;
   lastT = performance.now();
-  // мальчик в центре комнаты, а не в 70 см от стены
+  // Мальчик в центре комнаты, а не в 70 см от стены — и обязательно в точке,
+  // где он помещается. В спальне родителей центр приходился ровно на кровать
+  // (13% свободного пола), и первый шаг отменялся: «джойстик не работает».
   const r = world.roomData.rect;
-  world.pos = { x: r.w / 2, z: r.d * 0.55 };
+  world.pos = world.safeSpot(r.w / 2, r.d * 0.55);
   document.getElementById('controls').classList.add('ready');
   show3d();
   setTimeout(() => hud.toast('слева стик — идти. по экрану веди пальцем — смотреть.', 6000), 1500);
