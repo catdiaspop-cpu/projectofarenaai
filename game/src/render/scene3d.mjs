@@ -72,9 +72,12 @@ export class Scene3D {
     // Камера от третьего лица, через плечо.
     // Камера больше НЕ стоит внутри мальчика: игрок должен его видеть.
     this.yaw = 0;
-    this.pitch = -0.2;
-    this.camDist = 1.9;          // метров позади
-    this.camHeight = 1.58;       // чуть выше головы мальчика (1.22 м)
+    this.pitch = -0.3;
+    // Подобрано проекцией, а не на глаз: при 1.35 м и высоте 2.0 м мальчик
+    // занимает ~45% высоты экрана (было 84% — видно только затылок) и в кадре
+    // виден пол на 2.5 м вперёд. Камера при этом влезает даже в детскую 3.4 м.
+    this.camDist = 1.35;         // метров позади
+    this.camHeight = 2.0;        // выше головы мальчика (1.22 м), взгляд вниз
     this.camShoulder = 0.34;     // сдвиг вправо, «через плечо»
     this.camLerp = 0;            // сглаженная позиция
     this.camPos = new THREE.Vector3(0, 1.5, 3);
@@ -232,7 +235,9 @@ export class Scene3D {
   /** Поворот камеры (стик справа или свайп). Yaw — свободный, pitch ограничен. */
   rotate(deltaYaw, deltaPitch = 0) {
     this.yaw += deltaYaw;
-    this.pitch = Math.max(-0.62, Math.min(0.42, this.pitch + deltaPitch));
+    // Нижняя граница — из расчёта кадра: при 1.35 м и высоте 2.0 м наклон
+    // −0.62 даёт мальчика на 70% экрана. Ограничиваем −0.5 — максимум 57%.
+    this.pitch = Math.max(-0.5, Math.min(0.42, this.pitch + deltaPitch));
   }
 
   render(dt) {
@@ -248,7 +253,7 @@ export class Scene3D {
     const bob = Math.sin(this.walkBob) * 0.01 * speedFactor;
 
     const head = ch.root.position;
-    const focus = new THREE.Vector3(head.x, 1.12 + bob * 0.5, head.z);
+    const focus = new THREE.Vector3(head.x, 1.02 + bob * 0.5, head.z);
 
     // точка, куда сдвигается камера: назад по yaw и вправо через плечо
     const back = new THREE.Vector3(
@@ -309,7 +314,7 @@ export class Scene3D {
     // сглаживание: камера не телепортируется
     const smooth = Math.min(1, dt * 9);
     this.camPos.lerp(desired, smooth);
-    this.camLook.lerp(new THREE.Vector3(focus.x, focus.y - 0.05, focus.z), Math.min(1, dt * 12));
+    this.camLook.lerp(new THREE.Vector3(focus.x, focus.y + 0.08, focus.z), Math.min(1, dt * 12));
     this.camera.position.copy(this.camPos);
     this.camera.lookAt(this.camLook);
 
