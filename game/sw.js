@@ -2,12 +2,12 @@
 const CACHE = 'nespi-v1';
 const ASSETS = [
   './', './index.html', './styles.css', './src/main.mjs',
-  './src/core/app.mjs', './src/core/input.mjs',
+  './src/core/app.mjs', './src/core/input.mjs', './src/core/joystick.mjs',
   './src/data/house.mjs', './src/data/layout.mjs', './src/data/palette.mjs', './src/data/rooms.mjs',
   './src/world/props.mjs', './src/world/character.mjs', './src/world/builder.mjs',
   './src/sim/graph.mjs', './src/render/mesher.mjs', './src/render/character.mjs',
   './src/render/builders.mjs', './src/render/scene3d.mjs', './src/render/house-preview.mjs',
-  './src/ui/hud.mjs', './vendor/three/three.min.js', './manifest.webmanifest', './icon.svg',
+  './src/ui/hud.mjs', './src/ui/sticks.mjs', './vendor/three/three.min.js', './manifest.webmanifest', './icon.svg',
 ];
 
 self.addEventListener('install', (e) => {

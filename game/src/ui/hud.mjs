@@ -46,31 +46,13 @@ export class Hud {
 
       <div class="hud-toast" data-toast hidden></div>
 
-      <footer class="hud-bottom">
-        <div class="hud-bar" data-bar></div>
-        <div class="hud-buttons">
-          <button class="hud-btn" data-act="look" aria-label="Осмотреться">
-            <span class="glyph">◎</span><span class="label">осмотреться</span>
-          </button>
-          <button class="hud-btn hud-btn-main" data-act="go" aria-label="Идти">
-            <span class="glyph">▸</span><span class="label">идти</span>
-          </button>
-          <button class="hud-btn" data-act="torch" aria-label="Фонарь">
-            <span class="glyph">▮</span><span class="label">фонарь</span>
-          </button>
-        </div>
-        <div class="hud-under">
-          <button class="hud-mini" data-act="listen">держать — слушать</button>
-          <button class="hud-mini" data-act="hide">присесть</button>
-        </div>
-      </footer>
     `;
     this.el = {
+      // кнопки теперь в Sticks, здесь только чтение
       clock: this.root.querySelector('[data-clock]'),
       phase: this.root.querySelector('[data-phase]'),
       roomName: this.root.querySelector('[data-room-name]'),
       roomSub: this.root.querySelector('[data-room-sub]'),
-      bar: this.root.querySelector('[data-bar]'),
       toast: this.root.querySelector('[data-toast]'),
       scales: {},
     };
@@ -87,28 +69,12 @@ export class Hud {
   }
 
   bind() {
+    // В HUD осталась одна кнопка — меню. Остальное живёт в Sticks.
     this.root.addEventListener('click', (e) => {
-      const btn = e.target.closest('[data-act]');
+      const btn = e.target.closest('[data-act="menu"]');
       if (!btn) return;
-      const act = btn.dataset.act;
-      if (act === 'menu') { this.onPause?.(); return; }
-      if (act === 'torch') {
-        this.torchOn = !this.torchOn;
-        btn.classList.toggle('on', this.torchOn);
-        this.onAction?.('torch', this.torchOn);
-        return;
-      }
-      this.onAction?.(act);
+      this.onAction?.('menu');
     });
-
-    // «держать — слушать»
-    const listen = this.root.querySelector('[data-act="listen"]');
-    const start = (e) => { e.preventDefault(); listen.classList.add('on'); this.onAction?.('listenStart'); };
-    const end = () => { listen.classList.remove('on'); this.onAction?.('listenEnd'); };
-    listen.addEventListener('pointerdown', start);
-    listen.addEventListener('pointerup', end);
-    listen.addEventListener('pointercancel', end);
-    listen.addEventListener('pointerleave', end);
   }
 
   update(world) {
@@ -124,30 +90,7 @@ export class Hud {
     }
     if (this.lastRoom !== world.room) {
       this.lastRoom = world.room;
-      this.renderBar(world);
     }
-  }
-
-  /** Полоса предметов комнаты: что можно взять и с чем взаимодействовать. */
-  renderBar(world) {
-    const lay = world.lay;
-    const room = world.roomData;
-    const pills = [];
-    for (const it of lay.items) {
-      const prop = PROPS[it.prop];
-      const fns = prop.interact ?? [];
-      const label = prop.name ?? it.prop;
-      pills.push(`<button class="pill" data-item="${it.id}">${label}</button>`);
-    }
-    for (const it of lay.clutter) {
-      pills.push(`<button class="pill pill-clutter" data-item="${it.id}" data-home="${it.home}">${PROPS[it.prop].name ?? it.prop}</button>`);
-    }
-    this.el.bar.innerHTML = pills.join('');
-    this.el.bar.onclick = (e) => {
-      const b = e.target.closest('[data-item]');
-      if (!b) return;
-      this.onAction?.('item', b.dataset.item, b);
-    };
   }
 
   toast(text, ms = 2200) {
