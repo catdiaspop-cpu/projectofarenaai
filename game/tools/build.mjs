@@ -19,7 +19,7 @@ const FILES = [
   'index.html', 'styles.css', 'manifest.webmanifest', 'icon.svg', 'sw.js',
   'vendor/three/three.min.js',
   'src/main.mjs',
-  'src/core/app.mjs', 'src/core/input.mjs', 'src/core/joystick.mjs',
+  'src/core/app.mjs', 'src/core/input.mjs', 'src/core/joystick.mjs', 'src/core/movement.mjs',
   'src/data/house.mjs', 'src/data/layout.mjs', 'src/data/palette.mjs', 'src/data/rooms.mjs',
   'src/world/props.mjs', 'src/world/character.mjs', 'src/world/builder.mjs',
   'src/sim/graph.mjs', 'src/sim/locks.mjs',

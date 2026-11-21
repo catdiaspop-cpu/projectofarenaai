@@ -13,6 +13,7 @@ import { roomById, SPEED } from './sim/graph.mjs';
 import { DOORS } from './data/house.mjs';
 import { canOpen, doorsOf, otherSide } from './sim/locks.mjs';
 import { moveMode, cameraDelta } from './core/joystick.mjs';
+import { dirFromStick, step } from './core/movement.mjs';
 import { PROPS } from './world/props.mjs';
 
 const app = document.getElementById('app');
@@ -206,45 +207,18 @@ function applyMovement(dt) {
     : sticks.sprint
       ? SPEED.run
       : SPEED.sneak + (SPEED.normal - SPEED.sneak) * Math.min(1, mag * 1.35);
-  // Стик вверх = вперёд ОТНОСИТЕЛЬНО КАМЕРЫ.
-  // Оси взяты из реальной матрицы three.js (проверено тестом camera-direction):
-  //   forward = (-sin yaw, -cos yaw), right = (cos yaw, -sin yaw)
-  // Раньше forward был перевёрнут, и «вверх» отправлял мальчика назад.
-  const yaw = scene3d?.yaw ?? 0;
-  const fwdX = -Math.sin(yaw), fwdZ = -Math.cos(yaw);
-  const rightX = Math.cos(yaw), rightZ = -Math.sin(yaw);
-  // на экране Y инвертирован: вверх = -1 = вперёд
-  const ix = sticks.move.value.x;
-  const iy = sticks.move.value.y;
 
-  let dx = fwdX * -iy + rightX * ix;
-  let dz = fwdZ * -iy + rightZ * ix;
-  const len = Math.hypot(dx, dz);
-  if (len < 1e-4) return;
-  dx /= len;
-  dz /= len;
+  // Стик вверх = вперёд ОТНОСИТЕЛЬНО КАМЕРЫ (оси из матрицы three.js).
+  const dir = dirFromStick(sticks.move.value.x, sticks.move.value.y, scene3d?.yaw ?? 0);
+  if (!dir.x && !dir.z) return;
 
+  // шаг с обходом мебели: считается в movement.mjs, проверяется на 600 кадрах
   const room = world.roomData;
-  const next = {
-    x: world.pos.x + dx * speed * dt,
-    z: world.pos.z + dz * speed * dt,
-  };
+  const res = step(world.pos, dir, speed, dt, room.rect, world.obstacles());
+  world.pos = res.pos;
+  world.bumped = res.blocked;
 
-  // столкновение с мебелью: пробуем полный шаг, потом по осям
-  const obs = world.obstacles();
-  const fits = (p) => p.x > 0.22 && p.z > 0.22 &&
-    p.x < room.rect.w - 0.22 && p.z < room.rect.d - 0.22 &&
-    !obs.some((o) => p.x > o.x0 - 0.15 && p.x < o.x1 + 0.15 && p.z > o.z0 - 0.15 && p.z < o.z1 + 0.15);
-
-  if (fits(next)) {
-    world.pos = next;
-  } else if (fits({ x: next.x, z: world.pos.z })) {
-    world.pos = { x: next.x, z: world.pos.z };
-  } else if (fits({ x: world.pos.x, z: next.z })) {
-    world.pos = { x: world.pos.x, z: next.z };
-  }
-
-  world.facing = Math.atan2(dx, dz);
+  world.facing = Math.atan2(dir.x, dir.z);
   world.mode = crouch ? 'sneak' : sticks.sprint ? 'run' : 'walk';
   world.moving = true;
 }
