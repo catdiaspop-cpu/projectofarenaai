@@ -1,6 +1,9 @@
-# Сборка и публикация игры на GitHub Pages.
-# Игра статическая: build.mjs просто копирует нужные файлы в dist/.
-# Pages должен быть включён в настройках репозитория: Settings → Pages → Source: GitHub Actions.
+# Сборка и публикация на GitHub Pages.
+#
+# Главная страница — «НЕ СПИ» (папка game/).
+# Старая логическая игра остаётся доступной по адресу /old/.
+#
+# Pages должен быть включён один раз: Settings → Pages → Source: GitHub Actions.
 
 name: Pages
 
@@ -28,18 +31,23 @@ jobs:
         with:
           node-version: 20
 
-      # защита от публикации непроходимой комнаты
-      - name: Проверить, что все комнаты решаются
+      # старая игра: комната не должна стать непроходимой
+      - name: Проверить старую игру
         run: node tests/solvability.mjs
 
+      # новая игра: геометрия дома, ввод, меши, мир — всё без браузера
+      - name: Проверить дом и персонажа
+        working-directory: game
+        run: npm test
+
       - name: Собрать сайт
-        run: node build.mjs
+        run: node game/tools/build.mjs
 
       - uses: actions/configure-pages@v5
 
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: dist
+          path: game/dist
 
   deploy:
     needs: build
