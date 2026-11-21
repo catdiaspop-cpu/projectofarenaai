@@ -142,8 +142,11 @@ export class Sticks {
     this.el.lookStick.classList.remove('active');
     this.el.moveKnob.style.transform = 'translate(-50%, -50%)';
     this.el.lookKnob.style.transform = 'translate(-50%, -50%)';
-    this.el.moveStick.style.left = '22%';
-    this.el.moveStick.style.top = 'auto';
+    // вернуть стики на места по умолчанию (позицию задаёт CSS-класс)
+    this.el.moveStick.style.left = '';
+    this.el.moveStick.style.top = '';
+    this.el.lookStick.style.left = '';
+    this.el.lookStick.style.top = '';
   }
 
   /** Для отладки и тестов: что сейчас нажато. */

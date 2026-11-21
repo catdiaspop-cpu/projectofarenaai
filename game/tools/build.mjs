@@ -22,7 +22,7 @@ const FILES = [
   'src/core/app.mjs', 'src/core/input.mjs', 'src/core/joystick.mjs',
   'src/data/house.mjs', 'src/data/layout.mjs', 'src/data/palette.mjs', 'src/data/rooms.mjs',
   'src/world/props.mjs', 'src/world/character.mjs', 'src/world/builder.mjs',
-  'src/sim/graph.mjs',
+  'src/sim/graph.mjs', 'src/sim/locks.mjs',
   'src/render/mesher.mjs', 'src/render/character.mjs', 'src/render/builders.mjs',
   'src/render/scene3d.mjs', 'src/render/house-preview.mjs',
   'src/ui/hud.mjs', 'src/ui/sticks.mjs',
