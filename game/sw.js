@@ -56,7 +56,15 @@ self.addEventListener('fetch', (e) => {
 
   if (networkFirst) {
     e.respondWith(
-      fetch(e.request)
+      // cache: 'no-store' — принципиально. Без него network-first идёт в
+      // сеть только формально: браузер отвечает из СВОЕГО http-кэша
+      // (Pages отдаёт Cache-Control: max-age=600), и десять минут после
+      // деплоя телефон показывает старый код. Именно поэтому «правки
+      // не применились» при том, что на сервере они уже лежали.
+      // пробуем без обращения к http-кэшу; если браузер не даёт (Safari
+      // капризен к no-store в service worker) — обычный запрос
+      fetch(e.request, { cache: 'no-store' })
+        .catch(() => fetch(e.request))
         .then((res) => {
           if (res && res.ok) {
             const copy = res.clone();
