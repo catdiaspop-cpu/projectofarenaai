@@ -55,6 +55,25 @@ html, body {
 
 /* ─────────────── HUD ─────────────── */
 
+/* Причина, по которой 3D не поднялось: показываем ТЕКСТ, а не прячем в консоль.
+   Раньше единственным объяснением был тост «телефон не тянет 3D», и он был
+   один на два разных случая — выключенный WebGL и нашу собственную ошибку. */
+.scene-error {
+  position: fixed;
+  left: 10px;
+  right: 10px;
+  bottom: 10px;
+  z-index: 60;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(24, 12, 14, 0.94);
+  border: 1px solid rgba(190, 96, 90, 0.55);
+  color: #f0d9d2;
+  font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+  word-break: break-word;
+}
+.scene-error[hidden] { display: none; }
+
 .hud {
   position: absolute;
   inset: 0;

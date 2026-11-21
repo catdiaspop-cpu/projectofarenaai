@@ -37,6 +37,8 @@ let torchOn = false;
 let crouch = false;
 let paused = false;
 let sceneLoading = false;
+let pendingStart = false;   // нажали «начать», пока 3D ещё собиралось
+let sceneFailed = false;    // сцена не собралась — карта остаётся запасным видом
 let sceneLost = false;       // WebGL-контекст отобран телефоном
 let pendingDoor = null;      // { door, target, opening, opened } — дверь открыта, ждём шага
 
@@ -46,6 +48,13 @@ preview = new HousePreview(mapCanvas);
 preview.currentRoom = world.room;
 
 function showMap() {
+  if (!scene3d) {
+    // 3D ещё не готово. Молча переключаться на карту нельзя: именно так она
+    // и оказывалась «экраном по умолчанию». Говорим, что не готово, и
+    // оставляем текущий вид.
+    hud?.toast('3D ещё собирается. секунду.', 2500);
+    return;
+  }
   mode = 'map';
   app.dataset.mode = 'map';
   preview.resize();
@@ -60,7 +69,6 @@ function show3d() {
   }
   if (sceneLoading) return;
   sceneLoading = true;
-  hud?.toast('дом просыпается…');
   // ленивая загрузка three.js
   import('./render/scene3d.mjs').then(({ Scene3D }) => {
     scene3d = new Scene3D(sceneCanvas, {
@@ -73,24 +81,60 @@ function show3d() {
       },
     });
     scene3d.resize(window.innerWidth, window.innerHeight);
-    scene3d.load(world.room);
     scene3d.lightState = world.lightOn;
-    scene3d.setLightState(world.lightOn);
     scene3d.setTorch(true);          // фонарь сразу включён: иначе не видно
     torchOn = true;
+    mode = '3d';
+    app.dataset.mode = '3d';
+    sticks?.setTorch(true);          // до первого кадра: не мигаем иконкой
+    // Комнату ставим в самом конце. load() бросает, если сцена не собралась,
+    // и тогда превью (крутящаяся комната на заставке) честно покажет, что
+    // именно не так.
+    scene3d.load(world.room);
     scene3d.setCharacter(world.pos.x, world.pos.z, world.facing, 'idle', 'flashlight');
     scene3d.faceIntoRoom();
-    mode = '3d';
     currentOpenings();      // одиночные двери открыты сразу
-    app.dataset.mode = '3d';
-    sticks?.setTorch(true);
-    hud?.toast('фонарь в руке. иди.', 2600);
+    if (pendingStart) { pendingStart = false; startGame(); }
+    else hud?.toast('фонарь в руке. иди.', 2600);
   }).catch((err) => {
+    // ── две РАЗНЫЕ причины, и раньше они сваливались в одну фразу ──
+    // «Телефон не тянет 3D» — это когда сцена построилась, а WebGL отобрали
+    // (свернул приложение). Если же упал наш модуль или код, «не тянет» —
+    // неправда: чаще всего это ошибка, которую надо починить.
     console.error('3D не запустилось', err);
+    sceneFailed = true;
     mode = 'map';
     app.dataset.mode = 'map';
-    hud?.toast('тут телефон не тянет 3D. играем на карте.');
+    preview.resize();      // единственный случай, когда карта уместна
+    showSceneError({ noGL: !hasWebGL(), message: String(err?.message ?? err) });
+    // комната не соберётся — не держим человека на заставке
+    if (pendingStart) { pendingStart = false; startGame(); }
   }).finally(() => { sceneLoading = false; });
+}
+
+/**
+ * Есть ли на устройстве WebGL вообще.
+ * Нужно, чтобы отличить ДВЕ разные вещи, которые раньше назывались одинаково
+ * («телефон не тянет 3D»): браузер без WebGL и нашу собственную ошибку в
+ * сборке сцены. Во втором случае телефон всё тянет — виноват код.
+ */
+function hasWebGL() {
+  try {
+    const gl = document.createElement('canvas').getContext('webgl2')
+      || document.createElement('canvas').getContext('webgl');
+    gl?.getExtension('WEBGL_lose_context')?.loseContext();   // не держим видеопамять
+    return Boolean(gl);
+  } catch { return false; }
+}
+
+/** Показать в интерфейсе, ПОЧЕМУ 3D не поднялось, а не прятать в консоль. */
+function showSceneError(info) {
+  const box = document.getElementById('scene-error');
+  if (!box || !info) return;
+  box.textContent = info.noGL
+    ? 'WebGL выключен в браузере — 3D включить нельзя.'
+    : `3D не поднялось: ${info.message}. Это наша ошибка, не телефона.`;
+  box.hidden = false;
 }
 
 // ─────────────────────────── HUD ───────────────────────────
@@ -543,7 +587,18 @@ function charState() {
 
 // ─────────────────────────── запуск ───────────────────────────
 
-startBtn.addEventListener('click', () => {
+/**
+ * Начать игру.
+ *
+ * Кнопка не «включает 3D», а только закрывает заставку: сцена к этому моменту
+ * уже прогрета (см. ниже), поэтому первым кадром всегда комната, а не карта.
+ */
+function startGame() {
+  if (running) return;
+  // Нажали раньше, чем собралось 3D. Раньше это на секунду показывало КАРТУ
+  // (mode оставался 'map'), потом картинка менялась на комнату. Теперь
+  // заставка держится, пока комната не готова, и старт повторяется сам.
+  if (!scene3d && !sceneFailed) { pendingStart = true; return; }
   boot.classList.add('hidden');
   running = true;
   lastT = performance.now();
@@ -556,7 +611,18 @@ startBtn.addEventListener('click', () => {
   show3d();
   setTimeout(() => hud.toast('слева стик — идти. по экрану веди пальцем — смотреть.', 6000), 1500);
   requestAnimationFrame(frame);
-});
+}
+
+startBtn.addEventListener('click', startGame);
+
+// Прогрев 3D до нажатия «начать»: three.js и комната строятся, пока человек
+// читает заставку. Иначе первый кадр — полсекунды «дом просыпается…», и любой
+// сбой выкидывал в карту. Если 3D недоступно, узнаём это ДО старта.
+if ('requestIdleCallback' in window) requestIdleCallback(show3d, { timeout: 1200 });
+else setTimeout(show3d, 300);
+
+// Карта — по кнопке (или клавишей m). Если 3D не поднялось, карта остаётся
+// запасным видом, но включается только по явному действию игрока.
 
 window.addEventListener('resize', () => {
   preview.resize();

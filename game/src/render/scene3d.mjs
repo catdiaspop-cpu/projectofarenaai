@@ -240,8 +240,8 @@ export class Scene3D {
    * Построить соседние комнаты как «просвет»: пол, стены, потолок.
    *
    * Зачем: из комнаты видно только её саму, и открытая дверь ведёт в чёрную
-   * пустоту. Мебель в просвет не ставим (это дорого), но объём помещения,
-   * свет из него и пол уже дают ощущение, что там есть куда идти.
+   * пустоту. Объём помещения, свет из него и крупная мебель дают ощущение,
+   * что там есть куда идти.
    */
   buildSightlines(room) {
     if (this.neighbour) {
@@ -298,11 +298,13 @@ export class Scene3D {
       // «там настоящая комната» достаточно того, что видно в проёме:
       // шкаф, кровать, стол, диван. Мелочь (кружки, тапки, мелочь на полках)
       // в проём всё равно не читается.
+      // В LAYOUT есть не только комнаты (в tools/render.mjs этот код тоже
+      // выполняется), поэтому запись без мебели — не повод падать.
       const otherLay = LAYOUT[otherId];
-      if (otherLay) {
+      if (otherLay?.items) {
         const BIG = /bed|wardrobe|dresser|sofa|table|counter|fridge|stove|bath|shelf|stairs|mattress|box/i;
         const seenIds = new Set();
-        for (const it of [...otherLay.items, ...otherLay.clutter]) {
+        for (const it of [...otherLay.items, ...(otherLay.clutter ?? [])]) {
           if (seenIds.has(it.id)) continue;
           if (!BIG.test(it.prop)) continue;
           const prop = PROPS[it.prop];
@@ -366,6 +368,7 @@ export class Scene3D {
 
     // ── мебель
     this.propMeshes = new Map();
+    this.roomLights = [];
     for (const it of [...lay.items, ...lay.clutter]) {
       const prop = PROPS[it.prop];
       if (!prop) continue;
@@ -383,7 +386,6 @@ export class Scene3D {
     }
 
     // ── свет комнаты
-    this.roomLights = [];
     for (const l of LIGHTS) {
       if (l.room !== roomId) continue;
       const fallback = l.type === 'nightlight' || l.type === 'window';
@@ -471,14 +473,21 @@ export class Scene3D {
     this.scene.fog.color.setHex(0x0a0f16);
   }
 
+  /**
+   * Убрать текущую комнату целиком.
+   *
+   * Вызывается и на первом load(), когда комнаты ещё нет: поля, которые
+   * создаются по ходу сборки (propMeshes, roomLights, windowLights), до этого
+   * момента не существуют. Обращение к ним здесь и было тем исключением,
+   * которое валило ПЕРВЫЙ запуск 3D — то есть карту при старте.
+   */
   disposeRoom() {
-    if (!this.roomGroup) return;
-    this.roomGroup.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
-    this.scene.remove(this.roomGroup);
-    this.roomGroup = null;
-    this.propMeshes = new Map();
-    this.roomLights = [];
-    for (const l of this.windowLights) this.scene.remove(l);
+    if (this.roomGroup) {
+      this.scene.remove(this.roomGroup);
+      disposeGroup(this.roomGroup);      // геометрии и материалы — тоже
+      this.roomGroup = null;
+    }
+    for (const l of this.windowLights ?? []) this.scene.remove(l);
     this.windowLights = [];
   }
 

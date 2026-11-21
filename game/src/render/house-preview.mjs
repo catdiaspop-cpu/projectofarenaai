@@ -57,19 +57,28 @@ export class HousePreview {
     this.currentRoom = 'childroom';
     this.hoverRoom = null;
     this.time = 0;
-    this.resize();
+    // Карта строится лениво: раньше resize() звался из конструктора, и разрез
+    // дома был нарисован (и виден) ещё до старта игры.
+    this.layout = null;
+    this.byFloor = null;
+    this.cssW = 300;
+    this.cssH = 380;
+    this.dirty = true;
   }
 
   resize() {
-    const rect = this.canvas.getBoundingClientRect();
-    const w = Math.max(300, rect.width || window.innerWidth);
-    const h = Math.max(380, rect.height || window.innerHeight);
+    // Скрытый холст имеет нулевой размер: замер по нему давал «300 на 380»,
+    // и план уезжал за экран. Берём размер окна.
+    const w = Math.max(300, window.innerWidth || 300);
+    const h = Math.max(380, window.innerHeight || 380);
+    if (w === this.cssW && h === this.cssH && this.layout) return;
     this.cssW = w;
     this.cssH = h;
     this.canvas.width = Math.round(w * this.dpr);
     this.canvas.height = Math.round(h * this.dpr);
     this.layout = floorBands(w, h);
     this.byFloor = new Map(this.layout.bands.map((b) => [b.floor, b]));
+    this.dirty = true;
   }
 
   /** Прямоугольник комнаты на экране. */
@@ -87,6 +96,7 @@ export class HousePreview {
   }
 
   draw(dt) {
+    if (!this.layout) this.resize();
     this.time += dt;
     const { ctx } = this;
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
