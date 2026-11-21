@@ -11,6 +11,7 @@ import { Sticks } from './ui/sticks.mjs';
 import { HousePreview } from './render/house-preview.mjs';
 import { roomById, SPEED } from './sim/graph.mjs';
 import { DOORS } from './data/house.mjs';
+import { canOpen, doorsOf, otherSide } from './sim/locks.mjs';
 import { moveMode, cameraDelta } from './core/joystick.mjs';
 import { PROPS } from './world/props.mjs';
 
@@ -129,16 +130,25 @@ sticks = new Sticks(document.getElementById('controls'), {
 function nearDoor(reach = 0.95) {
   const room = world.roomData;
   let best = null;
-  for (const d of DOORS) {
-    if (!d.b || (d.a !== world.room && d.b !== world.room)) continue;
+  for (const d of doorsOf(world.room)) {
     const lx = d.at.x - room.rect.x;
     const lz = d.at.z - room.rect.z;
     const dist = Math.hypot(world.pos.x - lx, world.pos.z - lz);
     if (dist < reach && (!best || dist < best.dist)) {
-      best = { door: d, dist, target: d.a === world.room ? d.b : d.a };
+      best = { door: d, dist, target: otherSide(d, world.room) };
     }
   }
   return best;
+}
+
+/** Контекст для замков: что у мальчика есть прямо сейчас. */
+function lockCtx() {
+  return {
+    torch: torchOn,
+    lightOn: world.lightOn,
+    visited: world.entered,
+    crouch,
+  };
 }
 
 /** Ближайший предмет в комнате: до 1.2 м. */
@@ -252,8 +262,11 @@ function tryDoor(reach = 0.95) {
     return;
   }
   const { door, target } = near;
-  if (door.lock && !world.doorFlags[door.id]) {
-    hud.toast(`${door.lock}: пока закрыто.`, 2000);
+  // Замок открывается тем, что у мальчика есть: фонарь, свет, память о кухне.
+  // Раньше здесь стояла проверка, которую нечем было пройти — тупик.
+  const lock = canOpen(door, lockCtx());
+  if (!lock.open) {
+    hud.toast(lock.reason + '.', 2400);
     return;
   }
   if (world.goToRoom(target)) {
