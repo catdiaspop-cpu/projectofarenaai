@@ -278,19 +278,46 @@ export class Scene3D {
       });
       const kept = shell.parts.filter((part, i) => !shared[i]);
       const g = buildGroup(kept, { name: `see:${otherId}` });
-      // Оболочка построена в локальных координатах соседа (0…w, 0…d), а сцена
-      // живёт в координатах ТЕКУЩЕЙ комнаты с центром в нуле. Пересчитываем:
-      // сначала в мировые метры дома, потом обратно в локальные текущей.
-      const dx = other.rect.x - room.rect.x;
-      const dz = other.rect.z - room.rect.z;
-      g.position.set(dx - room.rect.w / 2, 0, dz - room.rect.d / 2);
+      // Оболочка соседа построена в ЕГО локальных координатах (0…w, 0…d).
+      // Сцена живёт в мировых метрах плана, значит сдвиг — на угол соседа.
+      // оболочка соседа — в координатах ЕГО комнаты (0…w), а группа комнаты
+      // стоит на своём угле плана, поэтому сдвиг — на разницу углов
+      g.position.set(other.rect.x - room.rect.x, 0, other.rect.z - room.rect.z);
       group.add(g);
+
+      // ── мебель соседа ──
+      // Раньше «просвет» был пустой коробкой: пол, стены, потолок. Через
+      // открытую дверь это читалось как декорация, а в момент шага мебель
+      // появлялась из ничего — то самое ощущение телепорта, даже когда
+      // позиция не меняется. Теперь за дверью стоит НАСТОЯЩАЯ комната,
+      // та же, в которую игрок войдёт. Геометрия слита по материалам,
+      // поэтому это единицы draw call, а не сотня.
+      // Мебель ставим только КРУПНУЮ и только в комнату за ЭТОЙ дверью.
+      // Полный набор у коридора (3 соседа) — это +10 тыс. треугольников и
+      // 39 материалов на кадр, телефон бы это почувствовал. А для ощущения
+      // «там настоящая комната» достаточно того, что видно в проёме:
+      // шкаф, кровать, стол, диван. Мелочь (кружки, тапки, мелочь на полках)
+      // в проём всё равно не читается.
+      const otherLay = LAYOUT[otherId];
+      if (otherLay) {
+        const BIG = /bed|wardrobe|dresser|sofa|table|counter|fridge|stove|bath|shelf|stairs|mattress|box/i;
+        const seenIds = new Set();
+        for (const it of [...otherLay.items, ...otherLay.clutter]) {
+          if (seenIds.has(it.id)) continue;
+          if (!BIG.test(it.prop)) continue;
+          const prop = PROPS[it.prop];
+          if (!prop) continue;
+          seenIds.add(it.id);
+          g.add(buildProp(partsOf(prop), { x: it.x, y: it.y ?? 0, z: it.z, rotY: it.rot ?? 0 }));
+        }
+      }
+
       // слабый свет в просвете: иначе пол там чёрный
       const l = new THREE.PointLight(0xffd9a0, 1.1, Math.max(other.rect.w, other.rect.d) * 1.6, 1.6);
       l.position.set(
-        (other.rect.x - room.rect.x) + other.rect.w / 2 - room.rect.w / 2,
+        other.rect.x + other.rect.w / 2,
         1.9,
-        (other.rect.z - room.rect.z) + other.rect.d / 2 - room.rect.d / 2,
+        other.rect.z + other.rect.d / 2,
       );
       group.add(l);
     }
@@ -312,21 +339,28 @@ export class Scene3D {
     group.name = `room:${roomId}`;
 
     // ── оболочка
+    // ── сцена живёт в МИРОВЫХ метрах плана, а не «комната вокруг центра» ──
+    // Раньше всё сдвигалось на (−w/2, −d/2), то есть каждая комната была
+    // отдельным мирком с центром в нуле. Переход в другую комнату означал
+    // пересборку мира в других координатах — и камера оказывалась не там,
+    // где была. Теперь комнаты стоят на своих местах плана, как в доме:
+    // вышли из детской на юг — и коридор буквально там, за стеной.
+    const ox = 0, oz = 0;
     const shell = roomShellParts(room);
     const shellGroup = buildGroup(shell.parts, { name: 'shell' });
-    shellGroup.position.set(-room.rect.w / 2, 0, -room.rect.d / 2);
+    shellGroup.position.set(ox, 0, oz);
     group.add(shellGroup);
     // Стекло окон отдельной группой: оно полупрозрачное, и сливать его с
     // стенами нельзя. Без этого окно было просто дырой в стене — сборщик
     // оболочки стекло возвращал, но в сцену его никто не добавлял.
     if (shell.glass?.length) {
       const glassGroup = buildGroup(shell.glass, { name: 'glass' });
-      glassGroup.position.set(-room.rect.w / 2, 0, -room.rect.d / 2);
+      glassGroup.position.set(ox, 0, oz);
       group.add(glassGroup);
     }
     if (room.kind === 'attic') {
       const roof = buildGroup(atticRoofParts(room), { name: 'roof' });
-      roof.position.set(-room.rect.w / 2, 0, -room.rect.d / 2);
+      roof.position.set(ox, 0, oz);
       group.add(roof);
     }
 
@@ -337,9 +371,9 @@ export class Scene3D {
       if (!prop) continue;
       const parts = partsOf(prop);
       const mesh = buildProp(parts, {
-        x: it.x - room.rect.w / 2,
+        x: it.x + ox,
         y: it.y ?? 0,
-        z: it.z - room.rect.d / 2,
+        z: it.z + oz,
         rotY: it.rot ?? 0,
       });
       mesh.name = `prop:${it.id}`;
@@ -357,29 +391,36 @@ export class Scene3D {
       const intensity = on ? l.power * (this.phaseDarkness ?? 1) : 0;
       const boost = l.type === 'nightlight' ? 6.5 : 4.0;
       const light = new THREE.PointLight(l.color, intensity * boost, l.radius * 1.6, 1.4);
-      light.position.set(l.at.x - room.rect.w / 2, l.h, l.at.z - room.rect.d / 2);
+      light.position.set(l.at.x + ox, l.h, l.at.z + oz);
       group.add(light);
       // видимая колба
       const bulb = buildProp([{ t: 'sph', r: 0.035, p: [0, 0, 0], mat: 'bulb' }], {
-        x: l.at.x - room.rect.w / 2, y: l.h, z: l.at.z - room.rect.d / 2,
+        x: l.at.x + ox, y: l.h, z: l.at.z + oz,
       });
       group.add(bulb);
       this.roomLights.push({ def: l, light, bulb, on });
     }
 
+    // ── комната стоит на своём месте в доме ──
+    // Геометрия внутри построена в координатах комнаты (0…w, 0…d), а группа
+    // сдвинута на угол комнаты в плане. Так ВСЕ комнаты живут в одной системе
+    // координат: коридор буквально за стеной детской, а не в отдельном мирке
+    // с центром в нуле. Из-за прежних «мирков» переход через дверь выглядел
+    // телепортом: мир пересобирался вокруг другой точки.
+    group.position.set(room.rect.x, 0, room.rect.z);
     this.roomGroup = group;
     this.scene.add(group);
     this.buildDoors(room);
     this.buildSightlines(room);
     this.buildWindowLight(room);
 
-    // поставить мальчика в центр комнаты (позицию задаёт World)
-    this.character.root.position.set(0, 0, 0);
     this.applyEnvironment(room);
 
-    // Глаза ставятся там, где стоит мальчик. Первый кадр был чёрным, когда
-    // камера оставалась в стене, — теперь позиция глаз всегда под телом.
-    this.eye.set(this.character.root.position.x, this.eyeBase, this.character.root.position.z);
+    // ── глаз НЕ переставляем при загрузке комнаты ──
+    // Раньше здесь ставили мальчика в (0,0,0) и глаза в эту точку, а World
+    // потом переносил его в точку входа. Между этими двумя моментами камера
+    // успевала прыгнуть — второй источник «телепорта». Теперь позицию глаз
+    // целиком задаёт setCharacter тем же кадром: где мальчик, там и глаза.
     this.camera.position.copy(this.eye);
     this.camera.rotation.order = 'YXZ';
     this.camera.rotation.set(this.pitch, this.yaw, 0);
@@ -399,8 +440,8 @@ export class Scene3D {
       const side = w.dir ?? (Math.abs(w.at.z - room.rect.z) < 0.2 ? 'n'
         : Math.abs(w.at.z - (room.rect.z + room.rect.d)) < 0.2 ? 's'
         : Math.abs(w.at.x - room.rect.x) < 0.2 ? 'w' : 'e');
-      const lx = w.at.x - room.rect.x - room.rect.w / 2;
-      const lz = w.at.z - room.rect.z - room.rect.d / 2;
+      const lx = w.at.x;
+      const lz = w.at.z;
       const y = (w.sill ?? 1) + w.size.h / 2;
       const inward = { n: [0, 1], s: [0, -1], w: [1, 0], e: [-1, 0] }[side];
       const light = new THREE.PointLight(0x93b4e0, 2.1, 7.5, 1.5);
@@ -461,6 +502,7 @@ export class Scene3D {
       // в комнату. Раньше здесь был перепутан порядок (baseRot сбрасывался
       // в 0, угол писался не туда), и вместо открывания створка ехала вбок.
       const leaf = new THREE.Group();
+      // hinge из leafTransform — уже в мировых метрах плана
       leaf.position.set(tr.hinge.x, 0, tr.hinge.z);
       leaf.rotation.y = tr.baseRot;
 
@@ -540,9 +582,11 @@ export class Scene3D {
 
   /** Позиция мальчика внутри комнаты (локальные метры). */
   setCharacter(localX, localZ, facing, state, hold, motion = {}) {
+    // мальчик живёт ВНЕ группы комнаты (он же один на весь дом), поэтому его
+    // координаты — мировые метры плана, а не локальные метры комнаты
     const room = roomById(this.roomId);
-    const lx = localX - room.rect.w / 2;
-    const lz = localZ - room.rect.d / 2;
+    const lx = localX + room.rect.x;
+    const lz = localZ + room.rect.z;
     this.character.root.position.set(lx, 0, lz);
     this.character.facing = facing;
     this.character.setState(state);
@@ -574,8 +618,9 @@ export class Scene3D {
     if (!room) return;
     const ch = this.character.root.position;
     // куда смотреть: в переданную точку или в центр комнаты
-    const tx = toward ? toward.x - room.rect.w / 2 : 0;
-    const tz = toward ? toward.z - room.rect.d / 2 : 0;
+    // ch — мировые метры (мальчик вне группы комнаты), значит и цель тоже
+    const tx = toward ? toward.x + room.rect.x : room.rect.x + room.rect.w / 2;
+    const tz = toward ? toward.z + room.rect.z : room.rect.z + room.rect.d / 2;
     const dx = tx - ch.x;
     const dz = tz - ch.z;
     if (Math.hypot(dx, dz) < 0.05) return;   // стоим в центре — некуда смотреть
