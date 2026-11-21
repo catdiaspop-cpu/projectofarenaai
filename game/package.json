@@ -6,7 +6,7 @@
   "description": "НЕ СПИ — хоррор про мальчика, дом и бессонницу",
   "scripts": {
     "dev": "node server.mjs",
-    "test": "node tests/house.test.mjs && node tests/input.test.mjs && node tests/render.test.mjs && node tests/world.test.mjs && node tests/joystick.test.mjs && node tests/camera.test.mjs && node tests/camera-direction.test.mjs && node tests/integration.test.mjs",
+    "test": "node tests/house.test.mjs && node tests/input.test.mjs && node tests/render.test.mjs && node tests/world.test.mjs && node tests/joystick.test.mjs && node tests/camera.test.mjs && node tests/camera-direction.test.mjs && node tests/layout.test.mjs && node tests/integration.test.mjs",
     "build": "node tools/build.mjs"
   },
   "devDependencies": {

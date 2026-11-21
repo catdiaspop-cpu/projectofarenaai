@@ -268,14 +268,18 @@ export class Scene3D {
     // как в мобильных ужастиках. Это всегда работает и ничего не ломает.
     const room = roomById(this.roomId);
     if (room) {
-      const hw = room.rect.w / 2 - 0.3;
-      const hd = room.rect.d / 2 - 0.3;
+      // в тесной комнате (коридор 8×1.5) запас 0.3 м не оставляет места —
+      // считаем от узкой стороны, но стенку не пробиваем
+      const margin = Math.min(0.3, Math.min(room.rect.w, room.rect.d) * 0.18);
+      const hw = room.rect.w / 2 - margin;
+      const hd = room.rect.d / 2 - margin;
       const clamp = (v, lim) => Math.max(-lim, Math.min(lim, v));
       const fits = (v) => Math.abs(v.x) < hw && Math.abs(v.z) < hd;
       if (!fits(desired)) {
-        // 1) поджимаем дистанцию
+        // 1) поджимаем дистанцию, но не ближе ~0.85 м:
+        //    вплотную к затылку мальчик занимает весь экран, это не обзор
         let k = 0.95;
-        for (; k >= 0.2; k -= 0.15) {
+        for (; k >= 0.45; k -= 0.1) {
           desired.set(
             focus.x + back.x * k + right.x * this.camShoulder * k,
             this.camHeight + bob + Math.sin(this.pitch) * 1.1,
@@ -285,11 +289,16 @@ export class Scene3D {
         }
         // 2) если всё равно не влезли — поднимаемся над мальчиком и смотрим вниз
         if (!fits(desired)) {
-          // совсем узкая комната (коридор, кладовка): камера почти над плечом
+          // совсем узкая комната (коридор 8×1.5, кладовка): сзади физически
+          // нет места, поэтому смотрим сверху. Отступ берём максимально
+          // возможный — сколько есть до стены, а не фиксированный.
+          const room2 = Math.max(0.05, Math.min(hd - Math.abs(focus.z), hd) * 0.92);
+          const along = back.z !== 0 ? back.z / Math.abs(back.z) : 0;
+          const side = back.x !== 0 ? back.x / Math.abs(back.x) : 0;
           desired.set(
-            focus.x + back.x * this.camDist * 0.12 + right.x * 0.2,
-            this.camHeight + 0.85 + bob,
-            focus.z + back.z * this.camDist * 0.12 + right.z * 0.2,
+            focus.x + side * room2 * 0.5 + right.x * 0.16,
+            this.camHeight + 0.58 + bob,
+            focus.z + along * room2 + right.z * 0.16,
           );
         }
         desired.x = clamp(desired.x, hw);
